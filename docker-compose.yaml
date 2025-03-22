@@ -8,11 +8,16 @@ services:
             - "8080:8080"
             - "8443:8443"
             - "8250:8250"
+            - "4560:4560"
         networks:
             - cloudstack-network
         volumes:
             - cloudstack-data:/var/lib/cloudstack
         restart: unless-stopped
+        environment:
+            - TZ=UTC
+        tmpfs:
+            - /tmp
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:8080/client"]
             interval: 30s
@@ -31,6 +36,7 @@ services:
             - CLOUDSTACK_API_URL=http://cloudstack:8080/client/api
             - CLOUDSTACK_API_KEY=${CLOUDSTACK_API_KEY}
             - CLOUDSTACK_SECRET_KEY=${CLOUDSTACK_SECRET_KEY}
+            - LOG_LEVEL=debug
         networks:
             - cloudstack-network
         depends_on:
@@ -44,3 +50,8 @@ networks:
 
 volumes:
     cloudstack-data:
+        driver: local
+        driver_opts:
+            type: "none"
+            o: "bind"
+            device: ${PWD}/.tmp/cloudstack-data

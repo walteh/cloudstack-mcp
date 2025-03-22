@@ -1,11 +1,11 @@
 package cloudstack
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
+	errors "gitlab.com/tozd/go/errors"
 )
 
 // Client represents a CloudStack API client
@@ -26,7 +26,7 @@ type Config struct {
 // NewClient creates a new CloudStack API client
 func NewClient(config *Config) (*Client, error) {
 	if config.APIURL == "" {
-		return nil, fmt.Errorf("CloudStack API URL is required")
+		return nil, errors.New("CloudStack API URL is required")
 	}
 
 	client := &Client{
@@ -67,7 +67,7 @@ func (c *Client) ListTemplates() ([]map[string]string, error) {
 	p := c.cs.Template.NewListTemplatesParams("featured")
 	resp, err := c.cs.Template.ListTemplates(p)
 	if err != nil {
-		return nil, fmt.Errorf("error listing templates: %v", err)
+		return nil, errors.Errorf("error listing templates: %w", err)
 	}
 
 	result := make([]map[string]string, 0, len(resp.Templates))
@@ -92,7 +92,7 @@ func (c *Client) GetDefaultZone() (string, error) {
 	p := c.cs.Zone.NewListZonesParams()
 	resp, err := c.cs.Zone.ListZones(p)
 	if err != nil {
-		return "", fmt.Errorf("error listing zones: %v", err)
+		return "", errors.Errorf("error listing zones: %w", err)
 	}
 
 	// Return the ID of the first available zone
@@ -100,7 +100,7 @@ func (c *Client) GetDefaultZone() (string, error) {
 		return resp.Zones[0].Id, nil
 	}
 
-	return "", fmt.Errorf("no zones found")
+	return "", errors.New("no zones found")
 }
 
 // DeployVM deploys a new virtual machine in CloudStack
@@ -113,7 +113,7 @@ func (c *Client) DeployVM(name, templateID, serviceOfferingID, zoneID string) (s
 
 	resp, err := c.cs.VirtualMachine.DeployVirtualMachine(p)
 	if err != nil {
-		return "", fmt.Errorf("error deploying VM: %v", err)
+		return "", errors.Errorf("error deploying VM: %w", err)
 	}
 
 	return resp.Id, nil
@@ -129,11 +129,11 @@ func (c *Client) GetVMStatus(id string) (string, error) {
 
 	resp, err := c.cs.VirtualMachine.ListVirtualMachines(p)
 	if err != nil {
-		return "", fmt.Errorf("error getting VM status: %v", err)
+		return "", errors.Errorf("error getting VM status: %w", err)
 	}
 
 	if len(resp.VirtualMachines) == 0 {
-		return "", fmt.Errorf("VM with ID %s not found", id)
+		return "", errors.Errorf("VM with ID %s not found", id)
 	}
 
 	return resp.VirtualMachines[0].State, nil

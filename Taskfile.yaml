@@ -45,9 +45,20 @@ tasks:
         cmds:
             - bash ./scripts/get-cloudstack-credentials.sh
 
+    cloudstack:fix-socket:
+        desc: Fix socket connection issues in the CloudStack management server
+        cmds:
+            - bash ./scripts/fix-socket-issue.sh
+
+    cloudstack:prepare-volumes:
+        desc: Prepare Docker volumes for CloudStack
+        cmds:
+            - bash ./scripts/prepare-volumes.sh
+
     docker:start:
         desc: Start CloudStack and MCP server using Docker Compose
         cmds:
+            - task: cloudstack:prepare-volumes
             - docker-compose up -d
             - echo "Waiting for CloudStack to initialize..."
             - sleep 10

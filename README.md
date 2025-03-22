@@ -83,6 +83,34 @@ task run:server
 task build
 ```
 
+## Troubleshooting
+
+### Socket Connection Issue
+
+If you encounter a socket connection error like this:
+
+```
+2025-03-22 07:01:42 2025-03-22 12:01:42,132 main ERROR TcpSocketManager (TCP:localhost:4560) caught exception and will continue: java.io.IOException: Unable to create socket for localhost at port 4560
+```
+
+You can fix it by running:
+
+```bash
+task cloudstack:fix-socket
+```
+
+This script will check for port conflicts and restart the CloudStack management server to resolve socket binding issues.
+
+### API Credentials
+
+If you need to manually get the CloudStack API credentials:
+
+```bash
+task cloudstack:get-credentials
+```
+
+This will extract API credentials from the running CloudStack container and save them to a `.env` file.
+
 ## License
 
 Apache License 2.0

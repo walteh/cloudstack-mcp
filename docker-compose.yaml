@@ -1,9 +1,8 @@
-version: "3"
-
 services:
     cloudstack:
         image: apache/cloudstack-simulator:4.20.0.0
         container_name: cloudstack-simulator
+        platform: linux/amd64
         ports:
             - "8080:8080"
             - "8443:8443"
@@ -30,6 +29,7 @@ services:
             context: .
             dockerfile: docker/cloudmonkey.Dockerfile
         container_name: cloudstack-cloudmonkey
+        platform: linux/amd64
         networks:
             - cloudstack-network
         volumes:
@@ -38,18 +38,14 @@ services:
             cloudstack:
                 condition: service_healthy
         restart: unless-stopped
-        # healthcheck:
-        #     test: ["CMD", "cmk", "list", "zones"]
-        #     interval: 45s
-        #     timeout: 15s
-        #     retries: 5
-        #     start_period: 240s
+        healthcheck:
+            test: ["CMD", "cmk", "list", "zones"]
+            interval: 45s
+            timeout: 15s
+            retries: 5
+            start_period: 240s
 
-        # entrypoint: ["cmk"]
         entrypoint: ["/bin/sh", "-c", "/usr/local/bin/docker-entrypoint.sh"]
-
-        # entrypoint: ["/bin/sh", "-c", "/usr/local/bin/docker-entrypoint.sh init && tail -f /dev/null"]
-        # entrypoint:
 
     mcp-server:
         build:

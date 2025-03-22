@@ -37,11 +37,20 @@ COPY <<EOT /usr/local/bin/docker-entrypoint.sh
 
 echo "running entrypoint"
 
+
+# we could have this commented in, but it must be the default because it works without it
+# cmk set profile localcloud
+# cmk set url http://cloudstack:8080/client/api
+# cmk set username admin
+# cmk set password password
+# cmk set domain ""
+# cmk set output json
+
 # # just keep trying to sync 
-# while ! cmk -d sync; do
-# 	echo "Sync failed - will retry later"
-# 	sleep 5
-# done
+while ! cmk -d sync; do
+	echo "Sync failed - will retry later"
+	sleep 5
+done
 
 # never exit
 tail -f /dev/null

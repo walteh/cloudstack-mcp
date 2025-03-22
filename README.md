@@ -18,6 +18,24 @@ This project implements an MCP server that connects to Apache CloudStack's API, 
 -   UTM (optional, for running CloudStack on Apple Silicon)
 -   Task (for running the task commands)
 
+### CloudMonkey Integration
+
+This project includes a containerized version of CloudMonkey, the official CLI client for CloudStack. With our setup, you don't need to install CloudMonkey locally - it runs in its own container with proper configuration.
+
+To use the containerized CloudMonkey:
+
+```bash
+# Start the environment with Docker Compose
+task docker:start
+
+# Run CloudMonkey commands through our wrapper script
+task cmk -- list zones
+task cmk -- list serviceofferings
+task cmk -- help
+```
+
+The `task cmk` command accepts any valid CloudMonkey command and parameters.
+
 ## Quick Start
 
 ### Using Docker Compose
@@ -101,15 +119,80 @@ task cloudstack:fix-socket
 
 This script will check for port conflicts and restart the CloudStack management server to resolve socket binding issues.
 
+### CloudMonkey API Cache Issues
+
+If CloudMonkey commands fail with an error message like:
+
+```
+Failed to read API cache, please run 'sync'
+```
+
+Or if you see any API cache-related errors, you can fix them by running:
+
+```bash
+task cmk -- sync
+```
+
+This command will sync the API cache in the CloudMonkey container.
+
+### Environment Status Check
+
+To check the overall status of your CloudStack environment, run:
+
+```bash
+task cloudstack:status
+```
+
+This will provide a comprehensive overview of:
+
+-   Container status for CloudStack and MCP
+-   CloudStack management service status
+-   Web UI accessibility
+-   Java processes
+-   Listening ports
+-   CloudMonkey API cache status
+-   API credential availability
+
+This is particularly helpful for troubleshooting when you encounter issues with any part of the system.
+
+## CloudStack Interaction with CloudMonkey
+
+Once CloudStack is running, you can interact with it directly using CloudMonkey through our containerized approach:
+
+```bash
+# List available commands
+task cmk -- help
+
+# List zones
+task cmk -- list zones
+
+# List templates
+task cmk -- list templates
+```
+
+CloudMonkey is a powerful tool for directly testing CloudStack API functionality and can help you understand how to use the API in your MCP server.
+
 ### API Credentials
 
-If you need to manually get the CloudStack API credentials:
+To get the CloudStack API credentials:
 
 ```bash
 task cloudstack:get-credentials
 ```
 
-This will extract API credentials from the running CloudStack container and save them to a `.env` file.
+This will use the containerized CloudMonkey to generate API credentials for the admin user and save them to a `.env` file.
+
+## Using Docker for CloudMonkey
+
+Our approach uses a containerized version of CloudMonkey to avoid common issues with CloudMonkey configuration and cache management:
+
+1. CloudMonkey runs in its own Docker container with proper configuration
+2. All cache and configuration issues are handled within the container
+3. The container is automatically started with the rest of the environment
+4. Commands are executed through a simple wrapper script (`task cmk`)
+5. No need to install or configure CloudMonkey locally
+
+This eliminates common issues like API cache errors, configuration problems, and authentication failures that can occur with local CloudMonkey installations.
 
 ## License
 

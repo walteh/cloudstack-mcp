@@ -23,18 +23,6 @@ if [ -z "$CONTAINER_ID" ]; then
 	exit 1
 fi
 
-echo -e "${YELLOW}Checking port 4560 inside the container...${NC}"
-
-# Check if port 4560 is in use inside the container
-PORT_CHECK=$(docker exec $CONTAINER_ID bash -c "netstat -tuln | grep 4560 || echo 'Port available'")
-
-if [[ $PORT_CHECK == *"Port available"* ]]; then
-	echo -e "${GREEN}Port 4560 is available inside the container.${NC}"
-else
-	echo -e "${YELLOW}Port 4560 is in use inside the container. Details:${NC}"
-	echo -e "$PORT_CHECK"
-fi
-
 echo -e "${YELLOW}Checking CloudStack logs for socket errors...${NC}"
 
 # Look for socket errors in the CloudStack logs
@@ -47,13 +35,70 @@ else
 	echo -e "$SOCKET_ERRORS"
 fi
 
+echo -e "${YELLOW}Checking for configuration issues with TcpSocketManager in CloudStack...${NC}"
+
+# Check server.properties for socket configuration
+SERVER_PROPS=$(docker exec $CONTAINER_ID bash -c "cat /etc/cloudstack/management/server.properties 2>/dev/null || echo 'File not found'")
+
+if [[ $SERVER_PROPS == *"File not found"* ]]; then
+	echo -e "${YELLOW}Could not find server.properties file.${NC}"
+else
+	echo -e "${GREEN}Found server.properties file.${NC}"
+
+	# Check if there are any configuration values for socket binding
+	SOCKET_CONFIG=$(docker exec $CONTAINER_ID bash -c "grep -i 'socket\|port\|bind\|tcp' /etc/cloudstack/management/server.properties || echo 'No socket configuration found'")
+
+	if [[ $SOCKET_CONFIG == *"No socket configuration found"* ]]; then
+		echo -e "${YELLOW}No specific socket binding configuration found.${NC}"
+	else
+		echo -e "${YELLOW}Socket configuration found:${NC}"
+		echo -e "$SOCKET_CONFIG"
+	fi
+fi
+
+echo -e "${YELLOW}Checking current listening ports in the container...${NC}"
+
+# Check netstat to see what's listening on port 4560
+NETSTAT_OUTPUT=$(docker exec $CONTAINER_ID bash -c "netstat -tuln | grep LISTEN || echo 'No listening ports found'")
+
+if [[ $NETSTAT_OUTPUT == *"No listening ports found"* ]]; then
+	echo -e "${YELLOW}No listening ports found in the container.${NC}"
+else
+	echo -e "${GREEN}Current listening ports:${NC}"
+	echo -e "$NETSTAT_OUTPUT"
+
+	if [[ $NETSTAT_OUTPUT == *"4560"* ]]; then
+		echo -e "${GREEN}Port 4560 is already in use by an application in the container.${NC}"
+	else
+		echo -e "${YELLOW}Port 4560 is not currently bound by any application.${NC}"
+	fi
+fi
+
 echo -e "${YELLOW}Attempting to fix the socket issue...${NC}"
 
+# Check if we're on Mac
+if [[ $(uname) == "Darwin" ]]; then
+	echo -e "${YELLOW}Running on macOS. Some socket binding issues are common with Docker on Mac.${NC}"
+	echo -e "${YELLOW}Checking if port 4560 is already in use on the host...${NC}"
+
+	if lsof -i :4560 >/dev/null; then
+		echo -e "${RED}Port 4560 is already in use on your Mac. This might be causing conflicts.${NC}"
+		echo -e "${YELLOW}Consider stopping the application using this port or changing the CloudStack configuration.${NC}"
+	else
+		echo -e "${GREEN}Port 4560 is not in use on your Mac.${NC}"
+	fi
+fi
+
 # Restart the management server service inside the container
-# This is a generic approach - the actual service name may vary depending on the CloudStack image
 echo -e "${YELLOW}Restarting CloudStack management server...${NC}"
 docker exec $CONTAINER_ID bash -c "service cloudstack-management restart || systemctl restart cloudstack-management || echo 'Failed to restart service'"
 
 echo -e "${GREEN}CloudStack management server restart attempted.${NC}"
 echo -e "${YELLOW}Wait a few minutes and check if the issue is resolved.${NC}"
-echo -e "${YELLOW}If the issue persists, you might need to modify the CloudStack configuration to use a different port or address binding.${NC}"
+
+echo -e "${YELLOW}Possible solutions if the issue persists:${NC}"
+echo -e "1. Modify the CloudStack configuration to bind to a different address:"
+echo -e "   e.g., 0.0.0.0 instead of localhost or a specific IP"
+echo -e "2. Modify the Docker Compose file to use a different host port mapping for port 4560"
+echo -e "3. Check if any firewall rules are blocking the connection"
+echo -e "4. Sometimes this error can be safely ignored if CloudStack is still functioning correctly"

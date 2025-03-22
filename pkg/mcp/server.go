@@ -72,7 +72,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	logger := zerolog.Ctx(ctx)
 	logger.Info().Str("address", addr).Msg("Starting MCP server")
 
-	return http.ListenAndServe(addr, s.loggerMiddleware(s.serverMux, logger))
+	return http.ListenAndServe(addr, s.loggerMiddleware(s.serverMux, *logger))
 }
 
 // loggerMiddleware adds logging to HTTP requests
@@ -122,9 +122,10 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger = logger.With().Str("tool", req.Name).Logger()
-	ctx = logger.WithContext(ctx)
-	logger.Debug().Interface("parameters", req.Parameters).Msg("Tool request")
+	// Create a new logger with the tool name and update the context
+	toolLogger := logger.With().Str("tool", req.Name).Logger()
+	ctx = toolLogger.WithContext(ctx)
+	toolLogger.Debug().Interface("parameters", req.Parameters).Msg("Tool request")
 
 	s.toolsMu.RLock()
 	handler, ok := s.tools[req.Name]
@@ -133,7 +134,7 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		errMsg := fmt.Sprintf("Unknown tool: %s", req.Name)
 		http.Error(w, errMsg, http.StatusBadRequest)
-		logger.Warn().Msg("Unknown tool requested")
+		toolLogger.Warn().Msg("Unknown tool requested")
 		return
 	}
 
@@ -141,7 +142,7 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errMsg := fmt.Sprintf("Tool execution failed: %v", err)
 		http.Error(w, errMsg, http.StatusInternalServerError)
-		logger.Error().Err(err).Msg("Tool execution failed")
+		toolLogger.Error().Err(err).Msg("Tool execution failed")
 		return
 	}
 
@@ -149,10 +150,10 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"result": result,
 	}); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode response")
+		toolLogger.Error().Err(err).Msg("Failed to encode response")
 	}
 
-	logger.Debug().Msg("Tool executed successfully")
+	toolLogger.Debug().Msg("Tool executed successfully")
 }
 
 // handleStatus handles the /v1/status endpoint

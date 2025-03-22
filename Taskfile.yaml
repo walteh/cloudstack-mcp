@@ -11,6 +11,8 @@ tasks:
         cmds:
             - go mod tidy
             - go install github.com/goreleaser/goreleaser@latest
+            - go install github.com/apache/cloudstack-cloudmonkey@latest
+            - if [ -f "$(which cloudstack-cloudmonkey)" ] && [ ! -f "$(dirname $(which cloudstack-cloudmonkey))/cmk" ]; then cp $(which cloudstack-cloudmonkey) $(dirname $(which cloudstack-cloudmonkey))/cmk; fi
 
     cloudstack:setup:
         desc: Setup a CloudStack environment using Docker or UTM
@@ -25,6 +27,7 @@ tasks:
             - echo "Checking for required tools..."
             - command -v docker >/dev/null 2>&1 || { echo "Docker is required but not installed"; exit 1; }
             - command -v utm >/dev/null 2>&1 || echo "UTM not found, will use Docker if possible"
+            - command -v cmk >/dev/null 2>&1 || { echo "CloudMonkey (cmk) not found, installing..."; go install github.com/apache/cloudstack-cloudmonkey@latest && cp $(which cloudstack-cloudmonkey) $(dirname $(which cloudstack-cloudmonkey))/cmk; }
 
     cloudstack:setup:download-image:
         desc: Download CloudStack VM image
@@ -43,31 +46,56 @@ tasks:
     cloudstack:get-credentials:
         desc: Retrieve CloudStack API credentials and save to .env file
         cmds:
-            - bash ./scripts/get-cloudstack-credentials.sh
+            - bash ./scripts/get-cloudstack-credentials-docker.sh
 
     cloudstack:fix-socket:
         desc: Fix socket connection issues in the CloudStack management server
         cmds:
             - bash ./scripts/fix-socket-issue.sh
 
+    cloudstack:fix-cmk-cache:
+        desc: Fix CloudMonkey API cache issues
+        cmds:
+            - bash ./scripts/fix-cmk-cache.sh
+
+    cloudstack:status:
+        desc: Check CloudStack environment status
+        cmds:
+            - bash ./scripts/check-cloudstack-status.sh
+
     cloudstack:prepare-volumes:
         desc: Prepare Docker volumes for CloudStack
         cmds:
             - bash ./scripts/prepare-volumes.sh
 
+    cloudstack:examples:
+        desc: Run CloudMonkey examples to interact with CloudStack
+        cmds:
+            - bash ./scripts/cloudstack-examples.sh
+
+    cmk:
+        desc: Run CloudMonkey command in Docker container
+        cmds:
+            - bash ./scripts/cmk.sh {{.CLI_ARGS}}
+
     docker:start:
         desc: Start CloudStack and MCP server using Docker Compose
         cmds:
             - task: cloudstack:prepare-volumes
-            - docker-compose up -d
+            - docker-compose up -d --build
             - echo "Waiting for CloudStack to initialize..."
-            - sleep 10
+            - sleep 30
             - task: cloudstack:get-credentials
 
     docker:stop:
         desc: Stop CloudStack and MCP server
         cmds:
             - docker-compose down
+
+    docker:build:
+        desc: Build Docker images for MCP and CloudMonkey
+        cmds:
+            - docker-compose build
 
     run:server:
         desc: Run the MCP server

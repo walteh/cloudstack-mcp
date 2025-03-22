@@ -1,0 +1,46 @@
+version: "3"
+
+services:
+    cloudstack:
+        image: apache/cloudstack-simulator:4.20.0.0
+        container_name: cloudstack-simulator
+        ports:
+            - "8080:8080"
+            - "8443:8443"
+            - "8250:8250"
+        networks:
+            - cloudstack-network
+        volumes:
+            - cloudstack-data:/var/lib/cloudstack
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/client"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+            start_period: 180s
+
+    mcp-server:
+        build:
+            context: .
+            dockerfile: docker/Dockerfile
+        container_name: cloudstack-mcp
+        ports:
+            - "8251:8250"
+        environment:
+            - CLOUDSTACK_API_URL=http://cloudstack:8080/client/api
+            - CLOUDSTACK_API_KEY=${CLOUDSTACK_API_KEY}
+            - CLOUDSTACK_SECRET_KEY=${CLOUDSTACK_SECRET_KEY}
+        networks:
+            - cloudstack-network
+        depends_on:
+            cloudstack:
+                condition: service_healthy
+        restart: unless-stopped
+
+networks:
+    cloudstack-network:
+        driver: bridge
+
+volumes:
+    cloudstack-data:

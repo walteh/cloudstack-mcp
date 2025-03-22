@@ -1,0 +1,75 @@
+version: "3"
+
+tasks:
+    default:
+        cmds:
+            - task -l
+        silent: true
+
+    setup-env:
+        desc: Setup the development environment
+        cmds:
+            - go mod tidy
+            - go install github.com/goreleaser/goreleaser@latest
+
+    cloudstack:setup:
+        desc: Setup a CloudStack environment using Docker or UTM
+        cmds:
+            - task: cloudstack:setup:check-deps
+            - task: cloudstack:setup:download-image
+            - task: cloudstack:setup:create-vm
+
+    cloudstack:setup:check-deps:
+        desc: Check if required dependencies are installed
+        cmds:
+            - echo "Checking for required tools..."
+            - command -v docker >/dev/null 2>&1 || { echo "Docker is required but not installed"; exit 1; }
+            - command -v utm >/dev/null 2>&1 || echo "UTM not found, will use Docker if possible"
+
+    cloudstack:setup:download-image:
+        desc: Download CloudStack VM image
+        cmds:
+            - mkdir -p .tmp/cloudstack
+            - curl -L -o .tmp/cloudstack/cloudstack-simulator.qcow2 {{.CLOUDSTACK_IMAGE_URL}}
+        vars:
+            CLOUDSTACK_IMAGE_URL: https://download.cloudstack.org/templates/4.20/cloudstack-simulator-4.20.0.0.qcow2
+
+    cloudstack:setup:create-vm:
+        desc: Create the CloudStack VM
+        cmds:
+            - echo "Setting up CloudStack environment..."
+            - bash ./scripts/setup-cloudstack.sh
+
+    cloudstack:get-credentials:
+        desc: Retrieve CloudStack API credentials and save to .env file
+        cmds:
+            - bash ./scripts/get-cloudstack-credentials.sh
+
+    docker:start:
+        desc: Start CloudStack and MCP server using Docker Compose
+        cmds:
+            - docker-compose up -d
+            - echo "Waiting for CloudStack to initialize..."
+            - sleep 10
+            - task: cloudstack:get-credentials
+
+    docker:stop:
+        desc: Stop CloudStack and MCP server
+        cmds:
+            - docker-compose down
+
+    run:server:
+        desc: Run the MCP server
+        cmds:
+            - go run ./cmd/server
+
+    build:
+        desc: Build the MCP server
+        cmds:
+            - go build -o bin/server ./cmd/server
+
+    clean:
+        desc: Clean build artifacts
+        cmds:
+            - rm -rf bin
+            - rm -rf .tmp

@@ -84,7 +84,7 @@ tasks:
             - task: cloudstack:prepare-volumes
             - docker-compose up -d --build
             - echo "Waiting for CloudStack to initialize..."
-            - sleep 30
+            - sleep 5
             - task: cloudstack:get-credentials
 
     docker:stop:

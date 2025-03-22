@@ -3,31 +3,31 @@ FROM apache/cloudstack-cloudmonkey:6.4.0
 # Create config directory
 RUN mkdir -p /root/.cmk
 
-COPY <<EOT /root/.cmk/config
-[core]
-asyncblock   = false
-timeout      = 0
-output       = json
-verifycert   = false
-profile      = localcloud
-autocomplete = true
+# COPY <<EOT /root/.cmk/config
+# [core]
+# asyncblock   = false
+# timeout      = 0
+# output       = json
+# verifycert   = false
+# profile      = localcloud
+# autocomplete = true
 
-[server "localcloud"]
-url = http://cloudstack:8080/client/api
-apikey = 
-secretkey = 
-timeout = 600
-verifycert = true
-signatureversion = 3
-domain = ROOT
-username = admin
-password = password
-expires = 
-output = json
-EOT
+# [server "localcloud"]
+# url = http://cloudstack:8080/client/api
+# apikey = 
+# secretkey = 
+# timeout = 600
+# verifycert = true
+# signatureversion = 3
+# domain =
+# username = admin
+# password = password
+# expires = 
+# output = json
+# EOT
 
-# Set proper permissions
-RUN chmod 600 /root/.cmk/config
+# # Set proper permissions
+# RUN chmod 600 /root/.cmk/config
 
 # Create cache directory
 RUN mkdir -p /root/.cmk/profiles/localcloud
@@ -37,11 +37,14 @@ COPY <<EOT /usr/local/bin/docker-entrypoint.sh
 
 echo "running entrypoint"
 
-# just keep trying to sync 
-while ! cmk -d sync; do
-	echo "Sync failed - will retry later"
-	sleep 5
-done
+# # just keep trying to sync 
+# while ! cmk -d sync; do
+# 	echo "Sync failed - will retry later"
+# 	sleep 5
+# done
+
+# never exit
+tail -f /dev/null
 
 EOT
 

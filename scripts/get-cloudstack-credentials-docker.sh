@@ -26,7 +26,7 @@ fi
 
 # Function to execute commands in the CloudMonkey container
 run_cmk() {
-	docker exec -i cloudstack-cloudmonkey cmk "$@"
+	docker exec -i cloudstack-cloudmonkey cmk -d "$@"
 }
 
 echo -e "${YELLOW}Waiting for CloudStack to be fully initialized...${NC}"
@@ -51,7 +51,7 @@ run_cmk set profile localcloud
 run_cmk set url http://cloudstack:8080/client/api
 run_cmk set username admin
 run_cmk set password password
-run_cmk set domain ROOT
+run_cmk set domain ""
 run_cmk set output json
 
 # Sync API definitions
@@ -77,7 +77,7 @@ fi
 
 # Try to log in
 echo -e "${YELLOW}Logging in to CloudStack...${NC}"
-LOGIN_OUTPUT=$(run_cmk login -u admin -p password 2>&1) || true
+LOGIN_OUTPUT=$(run_cmk login username=admin password=password 2>&1) || true
 if [[ "$LOGIN_OUTPUT" == *"successfully logged in"* ]]; then
 	echo -e "${GREEN}Successfully logged in to CloudStack.${NC}"
 else

@@ -1,0 +1,5 @@
+#! /usr/bin/env bash
+
+export TASK_X_ENV_PRECEDENCE=1 # https://github.com/go-task/task/issues/1038
+
+./go tool task "$@"

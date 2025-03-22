@@ -1,6 +1,27 @@
 version: "3"
 
+vars:
+    GO_MODULES:
+        sh: cat go.work | grep -oEh  '\t+(\./*[^[:space:]]*)' | tr -d '\t'
+    JSONSCHEMA_FILES:
+        sh: find . -type f -name '*.schema.json'
+    MOCKERY_SOURCE_FILES:
+        sh: 'grep -r "//go:mockery" --include="*.go" . | cut -d: -f1 | sort | uniq'
+
 tasks:
+    go-mod-tidy:
+        env: { GOPROXY: https://proxy.golang.org, GOSUMDB: sum.golang.org, GOPRIVATE: github.com/walteh }
+        cmds:
+            - for: { var: GO_MODULES }
+              cmd: |
+                  cd {{.ITEM}} && go mod tidy
+
+    go-mod-upgrade:
+        run: once
+        env: { GOPROXY: https://proxy.golang.org, GOSUMDB: sum.golang.org, GOPRIVATE: github.com/walteh }
+        cmds:
+            - ./go tool go-mod-upgrade --force
+
     default:
         cmds:
             - task -l

@@ -1,6 +1,7 @@
 package cloudstack
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -137,4 +138,16 @@ func (c *Client) GetVMStatus(id string) (string, error) {
 	}
 
 	return resp.VirtualMachines[0].State, nil
+}
+
+func (c *Client) ListApis(ctx context.Context, params *cloudstack.ListApisParams) ([]*cloudstack.Api, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	resp, err := c.cs.APIDiscovery.ListApis(params)
+	if err != nil {
+		return nil, errors.Errorf("error listing APIs: %w", err)
+	}
+
+	return resp.Apis, nil
 }

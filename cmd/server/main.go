@@ -92,8 +92,6 @@ func main() {
 		logger.Fatal().Err(err).Msgf("Failed to create CloudStack client\n\n")
 	}
 
-	// load
-
 	// Create and start MCP server
 	server := mcp.NewServer(ctx, client)
 	logger.Info().Str("address", *addr).Msg("Starting CloudStack MCP server")

@@ -184,15 +184,93 @@ This will use the containerized CloudMonkey to generate API credentials for the 
 
 ## Using Docker for CloudMonkey
 
-Our approach uses a containerized version of CloudMonkey to avoid common issues with CloudMonkey configuration and cache management:
+We use Docker to run CloudMonkey in a containerized environment, which offers several benefits:
 
-1. CloudMonkey runs in its own Docker container with proper configuration
-2. All cache and configuration issues are handled within the container
-3. The container is automatically started with the rest of the environment
-4. Commands are executed through a simple wrapper script (`task cmk`)
-5. No need to install or configure CloudMonkey locally
+-   CloudMonkey runs in its own container, avoiding configuration and cache management issues
+-   Cache and configuration problems are handled within the container
+-   The container starts automatically with the environment
+-   Commands are executed through a wrapper script (`task cmk`), eliminating the need for local installation
 
-This eliminates common issues like API cache errors, configuration problems, and authentication failures that can occur with local CloudMonkey installations.
+You can interact with CloudMonkey using the following command:
+
+```bash
+task cmk -- list zones
+```
+
+This executes the `list zones` command in the CloudMonkey container.
+
+## Authentication Options
+
+The MCP server supports multiple authentication methods for connecting to CloudStack:
+
+### 1. Direct API Key Authentication
+
+You can provide CloudStack API key and Secret key directly:
+
+```bash
+# Using environment variables
+export CLOUDSTACK_API_URL=http://cloudstack:8080/client/api
+export CLOUDSTACK_API_KEY=your-api-key
+export CLOUDSTACK_SECRET_KEY=your-secret-key
+
+# Or pass as command line arguments
+./mcp-server --api-url=http://cloudstack:8080/client/api --api-key=your-api-key --secret-key=your-secret-key
+```
+
+### 2. Username/Password Authentication
+
+The MCP server can automatically obtain API keys using username and password credentials:
+
+```bash
+# Using environment variables
+export CLOUDSTACK_API_URL=http://cloudstack:8080/client/api
+export CLOUDSTACK_USERNAME=mcp-service
+export CLOUDSTACK_PASSWORD=mcp-service-password
+
+# Or pass as command line arguments
+./mcp-server --api-url=http://cloudstack:8080/client/api --username=mcp-service --password=mcp-service-password
+```
+
+When using this method, the MCP server will:
+
+1. Check if the specified user exists in CloudStack
+2. Create the user if it doesn't exist
+3. Generate API keys for the user if they don't already have them
+4. Use these API keys for CloudStack communication
+
+This simplifies the setup process and avoids the need for pre-generated API keys.
+
+## MCP Service Account
+
+For proper separation of concerns, the MCP server uses a dedicated service account to interact with CloudStack instead of using the admin credentials. This service account is automatically created during the initialization of the CloudMonkey container.
+
+### Service Account Setup
+
+The service account setup happens automatically when you start the environment with:
+
+```bash
+task docker:start
+```
+
+This creates a user named `mcp-service` with appropriate API credentials, which are then made available to the MCP server container.
+
+### Manual Service Account Management
+
+You can also manually check or create the service account with these commands:
+
+```bash
+# Check the status of the MCP service account
+task mcp:service-account:check
+
+# Create or regenerate the MCP service account
+task mcp:service-account:create
+```
+
+After manually creating or updating the service account, you may need to restart the MCP server for it to use the new credentials:
+
+```bash
+task docker:restart
+```
 
 ## License
 

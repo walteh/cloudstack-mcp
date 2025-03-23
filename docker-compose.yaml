@@ -56,8 +56,8 @@ services:
             - "8251:8250"
         environment:
             - CLOUDSTACK_API_URL=http://cloudstack:8080/client/api
-            - CLOUDSTACK_API_KEY=user1234
-            - CLOUDSTACK_SECRET_KEY=user1234
+            - CLOUDSTACK_USERNAME=admin
+            - CLOUDSTACK_PASSWORD=password
             - LOG_LEVEL=debug
         networks:
             - cloudstack-network

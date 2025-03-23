@@ -38,10 +38,20 @@ tasks:
         cmds:
             - bash ./scripts/cmk.sh {{.CLI_ARGS}}
 
+    mcp:service-account:check:
+        desc: Check MCP service account status
+        cmds:
+            - bash ./scripts/cmk.sh list users username=mcp-service
+
+    mcp:service-account:create:
+        desc: Create MCP service account
+        cmds:
+            - bash ./scripts/create-mcp-service.sh
+
     docker:start:
         desc: Start CloudStack and MCP server using Docker Compose
         cmds:
-            - docker-compose up -d --wait
+            - docker-compose up -d --wait --build
 
     docker:restart:
         desc: Start CloudStack and MCP server using Docker Compose

@@ -390,7 +390,7 @@ func (r *TaskRegistry) executeTaskHandler(ctx context.Context, request mcp.CallT
 	task, ok := r.tasksByName[taskName]
 	if !ok {
 		logger.Error().Str("task", taskName).Msg("Task not found")
-		return mcp.NewToolResultError(fmt.Sprintf("Task '%s' not found", taskName)), nil
+		return nil, errors.Errorf("task '%s' not found", taskName)
 	}
 
 	// Extract variable values from the request

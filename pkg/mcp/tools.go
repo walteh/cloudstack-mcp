@@ -7,6 +7,7 @@ import (
 	csgo "github.com/apache/cloudstack-go/v2/cloudstack"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/rs/zerolog"
+	"github.com/walteh/cloudstack-mcp/pkg/cloudstack"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	errors "gitlab.com/tozd/go/errors"
 
@@ -17,10 +18,12 @@ func (me *Server) CreateToolForEachApi(ctx context.Context) ([]*mcp.Tool, error)
 
 	logger := zerolog.Ctx(ctx)
 
-	listOfApis, err := me.client.ListApis(ctx, &csgo.ListApisParams{})
+	listOfApisPtr, err := cloudstack.DoTypedCloudStackRequest[csgo.ListApisResponse](ctx, me.apiURL, "listApis", me.username, me.password, map[string]string{})
 	if err != nil {
-		return nil, errors.Errorf("listing APIs: %w", err)
+		return nil, errors.Errorf("getting list of APIs: %w", err)
 	}
+
+	listOfApis := listOfApisPtr.Apis
 
 	logger.Info().Msgf("List of APIs: %v", listOfApis)
 

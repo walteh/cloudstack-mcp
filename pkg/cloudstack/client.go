@@ -2,6 +2,12 @@ package cloudstack
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"net/url"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -150,4 +156,106 @@ func (c *Client) ListApis(ctx context.Context, params *cloudstack.ListApisParams
 	}
 
 	return resp.Apis, nil
+}
+
+// Request makes a generic request to the CloudStack API using the available service methods
+func (c *Client) Request(apiName string, params map[string]string) (interface{}, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// For now, we'll implement a simpler fallback strategy since we can't
+	// directly access the underlying client's request method
+	if strings.HasPrefix(apiName, "listTemplates") {
+		return c.ListTemplates()
+	} else if strings.HasPrefix(apiName, "listZones") {
+		return c.ListZones()
+	} else if strings.HasPrefix(apiName, "deployVirtualMachine") {
+		name := params["name"]
+		templateID := params["templateid"]
+		serviceOfferingID := params["serviceofferingid"]
+		zoneID := params["zoneid"]
+		if zoneID == "" {
+			var err error
+			zoneID, err = c.GetDefaultZone()
+			if err != nil {
+				return nil, errors.Errorf("getting default zone: %w", err)
+			}
+		}
+		vmID, err := c.DeployVM(name, templateID, serviceOfferingID, zoneID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"id": vmID, "status": "deploying"}, nil
+	} else if strings.HasPrefix(apiName, "listVirtualMachines") {
+		id := params["id"]
+		if id != "" {
+			status, err := c.GetVMStatus(id)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"id": id, "status": status}, nil
+		}
+	}
+
+	// For unimplemented APIs, return a meaningful error
+	return nil, errors.Errorf("API %s not implemented yet", apiName)
+}
+
+// ListZones retrieves all zones from CloudStack
+func (c *Client) ListZones() ([]map[string]string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	p := c.cs.Zone.NewListZonesParams()
+	resp, err := c.cs.Zone.ListZones(p)
+	if err != nil {
+		return nil, errors.Errorf("error listing zones: %w", err)
+	}
+
+	result := make([]map[string]string, 0, len(resp.Zones))
+	for _, z := range resp.Zones {
+		zone := map[string]string{
+			"id":   z.Id,
+			"name": z.Name,
+		}
+		result = append(result, zone)
+	}
+
+	return result, nil
+}
+
+// callNewRequest is a helper function to call the unexported newRequest method
+// on the CloudStack client using reflection
+
+// encodeURLValues creates a URL encoded string of the given values and signs it
+// with the given secret key
+func encodeURLValues(values url.Values, apiKey, secretKey string) string {
+	// Set the apiKey parameter
+	values.Set("apiKey", apiKey)
+
+	// Generate signature for the request
+	// Sort the parameters alphabetically
+	var keys []string
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Create a string of sorted parameters
+	var signatureParams strings.Builder
+	for _, k := range keys {
+		signatureParams.WriteString(k)
+		signatureParams.WriteString("=")
+		signatureParams.WriteString(url.QueryEscape(values.Get(k)))
+	}
+
+	// Calculate signature
+	mac := hmac.New(sha1.New, []byte(secretKey))
+	mac.Write([]byte(strings.ToLower(signatureParams.String())))
+	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	// Add the signature to the query parameters
+	values.Set("signature", signature)
+
+	return values.Encode()
 }

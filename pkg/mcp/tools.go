@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 
 	csgo "github.com/apache/cloudstack-go/v2/cloudstack"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -29,17 +30,23 @@ func (me *Server) CreateToolForEachApi(ctx context.Context) ([]*mcp.Tool, error)
 	tools := make([]*mcp.Tool, 0, len(listOfApis))
 
 	for _, api := range listOfApis {
-		sch, err := getToolOptionsFromType(ctx, api)
+		_, err := getToolOptionsFromType(ctx, api)
 		if err != nil {
 			return nil, errors.Errorf("getting tool types: %w", err)
 		}
 
-		// jsonSchema, err := json.Marshal(sch)
-		// if err != nil {
-		// 	return nil, errors.Errorf("marshalling tool types: %w", err)
-		// }
+		typ, err := getToolTypes(ctx, api)
+		if err != nil {
+			return nil, errors.Errorf("getting tool types: %w", err)
+		}
 
-		tool := mcp.NewTool(api.Name, sch...)
+		jsonSchema, err := json.Marshal(typ)
+		if err != nil {
+			return nil, errors.Errorf("marshalling tool types: %w", err)
+		}
+
+		// tool := mcp.NewTool(api.Name, sch...)
+		tool := mcp.NewToolWithRawSchema(api.Name, api.Description, jsonSchema)
 
 		tools = append(tools, &tool)
 	}
@@ -131,9 +138,14 @@ func getToolOptionsFromType(ctx context.Context, api *csgo.Api) ([]mcp.ToolOptio
 		case "boolean":
 			toolOpts = append(toolOpts, mcp.WithBoolean(param.Name, propOpts...))
 		case "object", "map":
+			propOpts = append(propOpts, mcp.Properties(map[string]any{}))
 			toolOpts = append(toolOpts, mcp.WithObject(param.Name, propOpts...))
 		case "array", "list":
+			propOpts = append(propOpts, mcp.Items(map[string]any{
+				"type": "string",
+			}))
 			toolOpts = append(toolOpts, mcp.WithArray(param.Name, propOpts...))
+			// pp.Println(param)
 		case "uuid":
 			propOpts = append(propOpts, mcp.Pattern("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
 			toolOpts = append(toolOpts, mcp.WithString(param.Name, propOpts...))

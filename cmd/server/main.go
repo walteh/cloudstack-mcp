@@ -28,6 +28,7 @@ func main() {
 	addr := flag.String("addr", getEnv("MCP_ADDR", ":8250"), "Address to listen on")
 	disableLogFile := flag.Bool("disable-log-file", false, "Disable log file")
 	printLogDir := flag.Bool("print-log-dir", false, "Print log directory")
+	http := flag.Bool("http", true, "Run in HTTP mode")
 	flag.Parse()
 
 	if *printLogDir {
@@ -54,7 +55,7 @@ func main() {
 	}
 
 	logfunc, err := lmcp.WrapMCPServerWithLogging(ctx, lmcp.LMCPOpts{
-		HTTPMode:       true,
+		HTTPMode:       *http,
 		HTTPAddr:       *addr,
 		DisableLogFile: *disableLogFile,
 		LogLevelStr:    "trace",

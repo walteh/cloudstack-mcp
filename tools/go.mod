@@ -15,12 +15,15 @@ tool gotest.tools/gotestsum
 // go mod upgrade
 tool github.com/oligot/go-mod-upgrade
 
+tool github.com/NickyBoy89/java2go
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.2 // indirect
 	github.com/Ladicle/tabwriter v1.0.0 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/NickyBoy89/java2go v0.0.0-20230212092738-955876f0bd9b // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
 	github.com/alecthomas/chroma/v2 v2.15.0 // indirect
 	github.com/apex/log v1.9.0 // indirect
@@ -79,7 +82,9 @@ require (
 	github.com/sajari/fuzzy v1.0.0 // indirect
 	github.com/sanity-io/litter v1.5.8 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
+	github.com/smacker/go-tree-sitter v0.0.0-20230113054119-af7e2ef5fed6 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect

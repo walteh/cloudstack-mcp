@@ -6,7 +6,7 @@ require (
 	github.com/apache/cloudstack-go/v2 v2.17.0
 	github.com/go-task/task/v3 v3.42.1
 	github.com/invopop/jsonschema v0.13.0
-	github.com/mark3labs/mcp-go v0.15.0
+	github.com/mark3labs/mcp-go v0.16.0
 	github.com/rs/zerolog v1.34.0
 	github.com/wk8/go-ordered-map/v2 v2.1.8
 	gitlab.com/tozd/go/errors v0.10.0
@@ -53,8 +53,8 @@ require (
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/mock v0.5.0 // indirect
-	golang.org/x/crypto v0.35.0 // indirect
-	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect

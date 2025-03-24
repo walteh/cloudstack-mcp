@@ -106,6 +106,7 @@ func (s *Server) handleDynamicTool(ctx context.Context, req mcp.CallToolRequest,
 			params[key] = fmt.Sprintf("%t", v)
 		case []interface{}:
 			// Convert array to comma-separated string
+
 			var strValues []string
 			for _, item := range v {
 				strValues = append(strValues, fmt.Sprintf("%v", item))

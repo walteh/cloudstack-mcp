@@ -34,7 +34,7 @@ func NewServer(ctx context.Context, username, password, apiURL string) (*Server,
 		mcpServer: server.NewMCPServer(
 			"CloudStackMCP",
 			"1.0.0",
-			server.WithToolCapabilities(true),
+			server.WithToolCapabilities(false),
 			server.WithResourceCapabilities(false, false),
 			server.WithInstructions("CloudStack MCP server provides tools to interact with CloudStack"),
 		),
@@ -82,9 +82,9 @@ func (s *Server) handleDynamicTool(ctx context.Context, req mcp.CallToolRequest,
 
 	// Extract the API name from the tool ID
 	// Tool IDs are formatted as cs_<apiName>
-	if !strings.HasPrefix(toolID, "cs_") {
-		return nil, errors.Errorf("invalid tool ID format: %s", toolID)
-	}
+	// if !strings.HasPrefix(toolID, "cs_") {
+	// 	return nil, errors.Errorf("invalid tool ID format: %s", toolID)
+	// }
 	apiName := strings.TrimPrefix(toolID, "cs_")
 
 	logger.Debug().Str("apiName", apiName).Msg("Executing CloudStack API")
@@ -146,18 +146,8 @@ func (s *Server) handleDynamicTool(ctx context.Context, req mcp.CallToolRequest,
 }
 
 // Start starts the MCP server
-func (s *Server) Start(ctx context.Context, addr string) error {
-	logger := zerolog.Ctx(ctx)
-	logger.Info().Str("address", addr).Msg("Starting MCP server")
-
-	// Configure HTTP server with our logger
-	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: s.loggerMiddleware(server.NewSSEServer(s.mcpServer), *logger),
-	}
-
-	// Start the HTTP server
-	return httpServer.ListenAndServe()
+func (s *Server) Server() *server.MCPServer {
+	return s.mcpServer
 }
 
 // loggerMiddleware adds logging to HTTP requests

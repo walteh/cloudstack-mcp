@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 
 	csgo "github.com/apache/cloudstack-go/v2/cloudstack"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -30,17 +29,17 @@ func (me *Server) CreateToolForEachApi(ctx context.Context) ([]*mcp.Tool, error)
 	tools := make([]*mcp.Tool, 0, len(listOfApis))
 
 	for _, api := range listOfApis {
-		sch, err := getToolTypes(ctx, api)
+		sch, err := getToolOptionsFromType(ctx, api)
 		if err != nil {
 			return nil, errors.Errorf("getting tool types: %w", err)
 		}
 
-		jsonSchema, err := json.Marshal(sch)
-		if err != nil {
-			return nil, errors.Errorf("marshalling tool types: %w", err)
-		}
+		// jsonSchema, err := json.Marshal(sch)
+		// if err != nil {
+		// 	return nil, errors.Errorf("marshalling tool types: %w", err)
+		// }
 
-		tool := mcp.NewToolWithRawSchema(api.Name, api.Description, jsonSchema)
+		tool := mcp.NewTool(api.Name, sch...)
 
 		tools = append(tools, &tool)
 	}
@@ -79,5 +78,76 @@ func getToolTypes(ctx context.Context, api *csgo.Api) (*jsonschema.Schema, error
 	return sch, nil
 }
 
+// func getToolTypesFromType(ctx context.Context, api *csgo.Api) (*mcp.ToolInputSchema, error) {
+
+// 	// logger := zerolog.Ctx(ctx)
+
+// 	maind := &mcp.ToolInputSchema{
+// 		Type:       "object",
+// 		Properties: map[string]any{},
+// 		Required:   []string{},
+// 	}
+
+// 	for _, param := range api.Params {
+// 		if param.Type == "object" {
+// 			maind.Properties[param.Name] = getToolTypesFromType(ctx, param)
+// 		} else {
+// 			maind.Properties[param.Name] = param.Type
+// 		}
+// 		if param.Required {
+// 			maind.Required = append(maind.Required, param.Name)
+// 		}
+// 	}
+
+// 	return maind, nil
+// }
+
 // func jsonSchemaFromType(ctx context.Context, typ *jsonschema.Schema) (*mcp.ToolInputSchema, error) {
 // }
+
+func getToolOptionsFromType(ctx context.Context, api *csgo.Api) ([]mcp.ToolOption, error) {
+
+	toolOpts := []mcp.ToolOption{}
+
+	for _, param := range api.Params {
+
+		propOpts := []mcp.PropertyOption{}
+
+		if param.Required {
+			propOpts = append(propOpts, mcp.Required())
+		}
+
+		propOpts = append(propOpts, mcp.Description(param.Description))
+
+		// if param.Length != nil {
+		// 	propOpts = append(propOpts, mcp.MaxLength(param.Length))
+		// }
+
+		switch param.Type {
+		case "string":
+			toolOpts = append(toolOpts, mcp.WithString(param.Name, propOpts...))
+		case "number", "integer", "long", "short":
+			toolOpts = append(toolOpts, mcp.WithNumber(param.Name, propOpts...))
+		case "boolean":
+			toolOpts = append(toolOpts, mcp.WithBoolean(param.Name, propOpts...))
+		case "object", "map":
+			toolOpts = append(toolOpts, mcp.WithObject(param.Name, propOpts...))
+		case "array", "list":
+			toolOpts = append(toolOpts, mcp.WithArray(param.Name, propOpts...))
+		case "uuid":
+			propOpts = append(propOpts, mcp.Pattern("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
+			toolOpts = append(toolOpts, mcp.WithString(param.Name, propOpts...))
+		case "date":
+			propOpts = append(propOpts, mcp.Pattern("^\\d{4}-\\d{2}-\\d{2}$"))
+			toolOpts = append(toolOpts, mcp.WithString(param.Name, propOpts...))
+		case "datetime":
+			propOpts = append(propOpts, mcp.Pattern("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"))
+			toolOpts = append(toolOpts, mcp.WithString(param.Name, propOpts...))
+		default:
+			return nil, errors.Errorf("unknown type: %s", param.Type)
+		}
+
+	}
+
+	return toolOpts, nil
+}

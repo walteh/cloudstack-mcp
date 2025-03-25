@@ -68,14 +68,44 @@ func getToolTypes(ctx context.Context, api *csgo.Api) (*jsonschema.Schema, error
 		Properties:  orderedmap.New[string, *jsonschema.Schema](),
 	}
 
-	for _, method := range api.Params {
+	for _, param := range api.Params {
 		prop := &jsonschema.Schema{}
-		logger.Info().Msgf("Method: %v", method)
-		prop.Type = method.Type
-		if method.Required {
-			prop.Required = append(prop.Required, method.Name)
+		logger.Info().Msgf("Param: %v", param)
+		prop.Type = param.Type
+		switch param.Type {
+		case "string":
+			prop.Type = "string"
+		case "number", "integer", "long", "short":
+			prop.Type = "number"
+			prop.Minimum = "0"
+		case "boolean":
+			prop.Type = "boolean"
+		case "object", "map":
+			prop.Type = "object"
+			prop.Properties = orderedmap.New[string, *jsonschema.Schema]()
+		case "array", "list":
+			prop.Type = "array"
+			prop.Items = &jsonschema.Schema{
+				Type: "string",
+			}
+		case "uuid":
+			prop.Type = "string"
+			prop.Format = "uuid"
+			// prop.Pattern = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+		case "date":
+			prop.Type = "string"
+			prop.Format = "date"
+		case "datetime":
+			prop.Type = "string"
+			prop.Format = "date-time"
+		default:
+			return nil, errors.Errorf("unknown type: %s", param.Type)
 		}
-		sch.Properties.Set(method.Name, prop)
+		if param.Required {
+			sch.Required = append(sch.Required, param.Name)
+		}
+		sch.Properties.Set(param.Name, prop)
+
 	}
 
 	// get the type from the csgo package

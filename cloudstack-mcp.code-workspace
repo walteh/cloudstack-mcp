@@ -26,7 +26,6 @@
 			"hashicorp.terraform",
 			"ms-azuretools.vscode-docker",
 			"github.copilot",
-			"eamodio.gitlens",
 			"redhat.vscode-yaml",
 			"golang.go",
 			"tooltitudeteam.tooltitude",
@@ -37,13 +36,35 @@
 			"microsoft-dciborow.align-bicep",
 			"mortenson.go-template-transpiler-extension",
 			"casualjim.gotemplate",
-			"aykutsarac.jsoncrack-vscode"
+			"tooltitudeteam.tooltitude-pb",
+			"tooltitudeteam.tooltitude-py"
 		]
 	},
 	"settings": {
+		"mcpManager.servers": [
+			{
+				"name": "cloudstack-mcp",
+				"url": "http://localhost:8251/sse",
+				"enabled": false,
+				"type": "sse"
+			}
+		],
+		"mcpManager.useCopilotProvider": true,
 		"gopls": {
-			"ui.semanticTokens": true
+			"ui.semanticTokens": true,
+			"ui.codelenses": {
+				"generate": true,
+				"gc_details": true,
+				"test": true,
+				"tidy": true,
+				"upgrade_dependency": true,
+				"vendor": true
+			},
+			"ui.documentation.hoverKind": "FullDocumentation",
+			"ui.documentation.linksInHover": "gopls",
+			"ui.completion.experimentalPostfixCompletions": true
 		},
+		"editor.codeLens": true,
 		"editor.tokenColorCustomizations": {},
 		"editor.semanticHighlighting.enabled": true,
 		"editor.semanticTokenColorCustomizations": {

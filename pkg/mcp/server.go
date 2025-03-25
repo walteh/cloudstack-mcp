@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -149,28 +148,4 @@ func (s *Server) handleDynamicTool(ctx context.Context, req mcp.CallToolRequest,
 // Start starts the MCP server
 func (s *Server) Server() *server.MCPServer {
 	return s.mcpServer
-}
-
-// loggerMiddleware adds logging to HTTP requests
-func (s *Server) loggerMiddleware(next http.Handler, logger zerolog.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Create a request-specific logger
-		reqLogger := logger.With().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Str("remote_addr", r.RemoteAddr).
-			Logger()
-
-		// Add logger to context
-		ctx := r.Context()
-		ctx = reqLogger.WithContext(ctx)
-		r = r.WithContext(ctx)
-
-		reqLogger.Debug().Msg("Request received")
-
-		// Call the next handler
-		next.ServeHTTP(w, r)
-
-		reqLogger.Debug().Msg("Request completed")
-	})
 }

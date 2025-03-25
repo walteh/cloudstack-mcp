@@ -1,7 +1,7 @@
 services:
     cloudstack:
         image: apache/cloudstack-simulator:4.20.0.0
-        container_name: cloudstack-simulator
+        container_name: cloudstack-mcp-simulator
         platform: linux/amd64
         ports:
             - "8080:8080"
@@ -28,7 +28,7 @@ services:
         build:
             context: .
             dockerfile: docker/cloudmonkey.Dockerfile
-        container_name: cloudstack-cloudmonkey
+        container_name: cloudstack-mcp-cmk
         platform: linux/amd64
         networks:
             - cloudstack-network
@@ -50,7 +50,7 @@ services:
     mcp-server-sse:
         build:
             context: .
-            dockerfile: docker/Dockerfile
+            dockerfile: docker/server.Dockerfile
         container_name: cloudstack-mcp-sse
         ports:
             - "8251:8250"
@@ -72,7 +72,7 @@ services:
             - stdio
         build:
             context: .
-            dockerfile: docker/Dockerfile
+            dockerfile: docker/server.Dockerfile
         container_name: cloudstack-mcp-stdio
         environment:
             - CLOUDSTACK_API_URL=http://cloudstack:8080/client/api

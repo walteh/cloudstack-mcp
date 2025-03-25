@@ -35,7 +35,7 @@ func (me *Server) CreateToolForEachApi(ctx context.Context) ([]*mcp.Tool, error)
 			return nil, errors.Errorf("getting tool types: %w", err)
 		}
 
-		typ, err := getToolTypes(ctx, api)
+		typ, err := CloudStackApiToJsonSchema(ctx, api)
 		if err != nil {
 			return nil, errors.Errorf("getting tool types: %w", err)
 		}
@@ -56,12 +56,12 @@ func (me *Server) CreateToolForEachApi(ctx context.Context) ([]*mcp.Tool, error)
 	return tools, nil
 }
 
-func getToolTypes(ctx context.Context, api *csgo.Api) (*jsonschema.Schema, error) {
+func CloudStackApiToJsonSchema(ctx context.Context, api *csgo.Api) (*jsonschema.Schema, error) {
 
 	logger := zerolog.Ctx(ctx)
 
 	sch := &jsonschema.Schema{
-		Title:       api.Name + "Params",
+		Title:       api.Name + "InputParams",
 		Description: api.Description,
 		Required:    []string{},
 		Type:        "object",

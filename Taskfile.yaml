@@ -8,30 +8,21 @@ vars:
     MOCKERY_SOURCE_FILES:
         sh: 'grep -r "//go:mockery" --include="*.go" . | cut -d: -f1 | sort | uniq'
 
+env:
+    COMPOSE_BAKE: true
+
 tasks:
     go-mod-tidy:
         env: { GOPROXY: https://proxy.golang.org, GOSUMDB: sum.golang.org, GOPRIVATE: github.com/walteh }
         cmds:
             - for: { var: GO_MODULES }
-              cmd: |
-                  cd {{.ITEM}} && go mod tidy
+              cmd: cd {{.ITEM}} && go mod tidy
 
     go-mod-upgrade:
         run: once
         env: { GOPROXY: https://proxy.golang.org, GOSUMDB: sum.golang.org, GOPRIVATE: github.com/walteh }
         cmds:
             - ./go tool go-mod-upgrade --force
-
-    default:
-        cmds:
-            - task -l
-        silent: true
-
-    cloudstack:setup:create-vm:
-        desc: Create the CloudStack VM
-        cmds:
-            - echo "Setting up CloudStack environment..."
-            - bash ./scripts/setup-cloudstack.sh
 
     cmk:
         desc: Run CloudMonkey command in Docker container
@@ -43,15 +34,10 @@ tasks:
         cmds:
             - bash ./scripts/cmk.sh list users username=mcp-service
 
-    mcp:service-account:create:
-        desc: Create MCP service account
-        cmds:
-            - bash ./scripts/create-mcp-service.sh
-
     docker:start:
         desc: Start CloudStack and MCP server using Docker Compose
         cmds:
-            - docker-compose up -d --wait --build
+            - docker compose --progress=tty up -d --wait --build
 
     docker:restart:
         desc: Start CloudStack and MCP server using Docker Compose
@@ -62,22 +48,22 @@ tasks:
     docker:stop:
         desc: Stop CloudStack and MCP server
         cmds:
-            - docker-compose down
+            - docker compose --progress=tty down
 
     docker:build:
         desc: Build Docker images for MCP and CloudMonkey
         cmds:
-            - docker-compose build
+            - docker compose --progress=tty build
 
     run:server:
         desc: Run the MCP server
         cmds:
-            - go run ./cmd/server
+            - ./go run ./cmd/server
 
     build:
         desc: Build the MCP server
         cmds:
-            - go build -o bin/server ./cmd/server
+            - ./go build -o bin/server ./cmd/server
 
     clean:
         desc: Clean build artifacts

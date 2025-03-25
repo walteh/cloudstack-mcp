@@ -13,7 +13,7 @@ if [ "${1:-}" == "test" ]; then
 
 	# Handle each argument
 	for arg in "$@"; do
-		if [ "$arg" = "-custom-coverage" ]; then
+		if [ "$arg" = "-function-coverage" ]; then
 			cc=1
 		elif [ "$arg" = "-force" ]; then
 			ff=1
@@ -43,11 +43,12 @@ if [ "${1:-}" == "test" ]; then
 	fi
 
 	# Use our truncation wrapper
-	./scripts/truncate-test-logs.sh "$max_lines" -- ./go tool gotest.tools/gotestsum \
+	./scripts/truncate-test-logs.sh "$max_lines" -- go tool gotest.tools/gotestsum \
 		--format pkgname \
 		--format-icons hivis \
 		--hide-summary=skipped \
 		--raw-command -- go test -v -vet=all -json -cover $extra_args "${real_args[@]}"
+
 	exit $?
 fi
 
@@ -69,10 +70,11 @@ if [ "${1:-}" == "tool" ]; then
 		fi
 		errors_to_suppress_regex+="$escaped_phrase"
 	done
-	go tool "$@" <&0 >&1 2> >(grep -Ev "$errors_to_suppress_regex" >&2)
+
+	go tool "$@" <&0 >&1 2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
 
 	exit $?
 fi
 
 # otherwise run go directly with all arguments
-exec go "$@"
+go "$@"

@@ -41,7 +41,7 @@ func Test_CloudStackApiToJsonSchema(t *testing.T) {
 				Required:    []string{},
 				Type:        "object",
 				Properties: orderedmap.New[string, *jsonschema.Schema](orderedmap.WithInitialData(orderedmap.Pair[string, *jsonschema.Schema]{
-					Key:   "test",
+					Key:   "tests",
 					Value: &jsonschema.Schema{Type: "string"},
 				})),
 			},
@@ -51,7 +51,7 @@ func Test_CloudStackApiToJsonSchema(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := mcp.CloudStackApiToJsonSchema(t.Context(), tt.args.api)
 			require.NoError(t, err)
-			require.EqualExportedValues(t, tt.want, got)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

@@ -42,11 +42,12 @@ if [ "${1:-}" == "test" ]; then
 		extra_args="$extra_args -count=1 "
 	fi
 
-	# Use our truncation wrapper
-	./scripts/truncate-test-logs.sh "$max_lines" -- go tool gotest.tools/gotestsum \
+	# Use our truncation wrapper - go run ./cmd/test-deco
+	./scripts/truncate-test-logs.sh "$max_lines" -- go run ./cmd/test-deco go tool gotest.tools/gotestsum \
 		--format pkgname \
 		--format-icons hivis \
 		--hide-summary=skipped \
+		--jsonfile=test.json \
 		--raw-command -- go test -v -vet=all -json -cover $extra_args "${real_args[@]}"
 
 	exit $?
@@ -70,6 +71,9 @@ if [ "${1:-}" == "tool" ]; then
 		fi
 		errors_to_suppress_regex+="$escaped_phrase"
 	done
+
+	# 'go tool -n "$@"' can but used to get the binary name that is being run in case we need it later
+	tool_binary_executable=$(go tool -n "$@")
 
 	go tool "$@" <&0 >&1 2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
 

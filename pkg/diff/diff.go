@@ -69,7 +69,7 @@ func formatStartingWhitespace(s string, colord *color.Color) string {
 	return out
 }
 
-func enrichCmpDiff(diff string) string {
+func EnrichCmpDiff(diff string) string {
 	if diff == "" {
 		return ""
 	}
@@ -128,14 +128,14 @@ func diffTyped[T any](printer *pp.PrettyPrinter, want T, got T) string {
 	case string:
 		unified := diffd(any(want).(string), any(got).(string))
 
-		return enrichUnifiedDiff(unified)
+		return EnrichUnifiedDiff(unified)
 	default:
 		cmpd := cmp.Diff(got, want)
-		return enrichCmpDiff(cmpd)
+		return EnrichCmpDiff(cmpd)
 	}
 }
 
-func enrichUnifiedDiff(diff string) string {
+func EnrichUnifiedDiff(diff string) string {
 	if diff == "" {
 		return ""
 	}
@@ -151,8 +151,24 @@ func enrichUnifiedDiff(diff string) string {
 	diff = strings.ReplaceAll(diff, "--- Expected", fmt.Sprintf("%s %s [%s]", color.New(color.Faint).Sprint("---"), color.New(color.FgBlue).Sprint("want"), color.New(color.FgBlue, color.Bold).Sprint("want")))
 	diff = strings.ReplaceAll(diff, "+++ Actual", fmt.Sprintf("%s %s [%s]", color.New(color.Faint).Sprint("+++"), color.New(color.FgRed).Sprint("got"), color.New(color.FgRed, color.Bold).Sprint("got")))
 
+	// split the lines by \n and trim the common receding whitespace
+	lines := strings.Split(diff, "\n")
+	commonWhitespace := ""
+	for _, line := range lines[0] {
+		if line == ' ' || line == '\t' {
+			commonWhitespace += string(line)
+		} else {
+			break
+		}
+	}
+	for i, line := range lines {
+		lines[i] = strings.TrimPrefix(line, commonWhitespace)
+	}
+	diff = strings.Join(lines, "\n")
+
 	realignmain := []string{}
 	for i, spltz := range strings.Split(diff, "\n@@") {
+
 		if i == 0 {
 			realignmain = append(realignmain, spltz)
 		} else {
@@ -160,6 +176,7 @@ func enrichUnifiedDiff(diff string) string {
 
 			realign := []string{}
 			for j, found := range strings.Split(spltz, "\n") {
+
 				if j == 0 {
 					first = color.New(color.Faint).Sprint("@@" + found)
 				} else {
@@ -169,7 +186,7 @@ func enrichUnifiedDiff(diff string) string {
 						realign = append(realign, actualPrefix+formatStartingWhitespace(found[1:], color.New(color.FgRed)))
 					} else {
 						if found == "" {
-							found = "  "
+							found = "\t  "
 						}
 						realign = append(realign, strings.Repeat(" ", 9)+formatStartingWhitespace(found[1:], color.New(color.Faint)))
 					}

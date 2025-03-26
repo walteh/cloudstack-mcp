@@ -19,6 +19,8 @@ import (
 	"syscall"
 
 	"github.com/fatih/color"
+	"github.com/google/go-cmp/cmp"
+	"github.com/walteh/cloudstack-mcp/pkg/diff"
 )
 
 var (
@@ -27,6 +29,10 @@ var (
 	fail = color.FgHiRed
 
 	skipnotest bool
+
+	// Buffer for collecting diff lines
+	diffBuffer []string
+	inDiff     bool
 )
 
 const (
@@ -50,8 +56,7 @@ func gotest(args []string) int {
 	r, w := io.Pipe()
 	defer w.Close()
 
-	args = append([]string{"test"}, args...)
-	cmd := exec.Command("go", args...)
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stderr = w
 	cmd.Stdout = w
 	cmd.Env = os.Environ()
@@ -64,9 +69,11 @@ func gotest(args []string) int {
 
 	go consume(&wg, r)
 
-	sigc := make(chan os.Signal)
+	sigc := make(chan os.Signal, 1)
 	done := make(chan struct{})
 	defer func() {
+		signal.Stop(sigc)
+		close(sigc)
 		done <- struct{}{}
 	}()
 	signal.Notify(sigc)
@@ -103,41 +110,159 @@ func consume(wg *sync.WaitGroup, r io.Reader) {
 			log.Print(err)
 			return
 		}
-		parse(string(l))
+		line := string(l)
+		trimmed := strings.TrimSpace(line)
+
+		// If we're in a diff block and hit a new test or the end of output,
+		// process and print the buffered diff
+		if inDiff && (strings.HasPrefix(trimmed, "=== RUN") || strings.HasPrefix(trimmed, "=== FAIL") || strings.HasPrefix(trimmed, "--- FAIL") || strings.HasPrefix(trimmed, "FAIL") || strings.HasPrefix(trimmed, "Test:")) {
+			if len(diffBuffer) > 0 {
+				processDiff(diffBuffer)
+				diffBuffer = nil
+				inDiff = false
+			}
+		}
+
+		// Handle test failures
+		if strings.HasPrefix(trimmed, "=== FAIL:") {
+			parts := strings.Split(trimmed, " ")
+			if len(parts) >= 3 {
+				testName := parts[2]
+				duration := ""
+				if len(parts) >= 4 {
+					duration = parts[3]
+				}
+				fmt.Printf("%s %s %s\n",
+					color.New(fail, color.Bold).Sprint("✗"),
+					color.New(color.Bold).Sprint(testName),
+					color.New(color.Faint).Sprint(duration),
+				)
+			} else {
+				color.Set(fail)
+				fmt.Printf("%s\n", line)
+			}
+			continue
+		}
+
+		// Handle test errors
+		if strings.HasPrefix(trimmed, "=== Failed") {
+			color.Set(fail)
+			fmt.Printf("\n%s %s\n", color.New(color.Bold).Sprint("Failed Tests:"), strings.TrimPrefix(line, "=== Failed"))
+			continue
+		}
+
+		// For test failures, collect and process the diff
+		if inDiff {
+			diffBuffer = append(diffBuffer, line)
+			continue
+		}
+
+		// For error messages in test failures
+		if strings.Contains(trimmed, "Error:") {
+			if strings.Contains(trimmed, "Not equal:") {
+				inDiff = true
+				diffBuffer = make([]string, 0)
+				fmt.Printf("%s %s\n",
+					color.New(color.Faint).Sprint("  "),
+					color.New(color.Bold).Sprint("Not equal:"),
+				)
+				continue
+			}
+			fmt.Printf("%s %s\n",
+				color.New(color.Faint).Sprint("  "),
+				color.New(color.FgRed).Sprint(strings.TrimSpace(strings.TrimPrefix(line, "Error:"))),
+			)
+			continue
+		}
+
+		// For error traces in test failures
+		if strings.Contains(trimmed, "Error Trace:") {
+			fmt.Printf("%s %s\n",
+				color.New(color.Faint).Sprint("  "),
+				color.New(color.Faint).Sprint(strings.TrimSpace(strings.TrimPrefix(line, "Error Trace:"))),
+			)
+			continue
+		}
+
+		// Pass through all other output as-is
+		fmt.Println(line)
 	}
 }
 
-func parse(line string) {
-	trimmed := strings.TrimSpace(line)
-	defer color.Unset()
+func processDiff(lines []string) {
+	// Extract the actual diff content
+	var want, got string
+	var currentSection string
+	var diffStarted bool
+	var unifiedDiff string
 
-	var c color.Attribute
-	switch {
-	case strings.Contains(trimmed, "[no test files]"):
-		if skipnotest {
-			return
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines
+		if trimmed == "" {
+			continue
 		}
 
-	case strings.HasPrefix(trimmed, "--- PASS"): // passed
-		fallthrough
-	case strings.HasPrefix(trimmed, "ok"):
-		fallthrough
-	case strings.HasPrefix(trimmed, "PASS"):
-		c = pass
+		// Look for the diff section
+		if strings.Contains(trimmed, "Diff:") {
+			diffStarted = true
+			continue
+		}
 
-	// skipped
-	case strings.HasPrefix(trimmed, "--- SKIP"):
-		c = skip
-
-	// failed
-	case strings.HasPrefix(trimmed, "--- FAIL"):
-		fallthrough
-	case strings.HasPrefix(trimmed, "FAIL"):
-		c = fail
+		if !diffStarted {
+			// Detect which section we're in for the struct comparison
+			switch {
+			case strings.HasPrefix(trimmed, "expected:"):
+				currentSection = "want"
+				want = strings.TrimPrefix(trimmed, "expected:")
+			case strings.HasPrefix(trimmed, "actual:"):
+				currentSection = "got"
+				got = strings.TrimPrefix(trimmed, "actual:")
+			case strings.HasPrefix(trimmed, "actual  :"):
+				currentSection = "got"
+				got = strings.TrimPrefix(trimmed, "actual  :")
+			default:
+				if currentSection == "want" {
+					want = trimmed
+				} else if currentSection == "got" {
+					got = trimmed
+				}
+			}
+		} else {
+			// Collect unified diff lines
+			unifiedDiff += line + "\n"
+		}
 	}
 
-	color.Set(c)
-	fmt.Printf("%s\n", line)
+	if diffStarted && unifiedDiff != "" {
+		// Use the diff package to format the unified diff
+		fmt.Print(diff.EnrichUnifiedDiff(unifiedDiff))
+	} else if want != "" && got != "" {
+		// If we have struct content but no diff, generate one
+		formattedDiff := cmp.Diff(want, got)
+		fmt.Print(diff.EnrichCmpDiff(formattedDiff))
+	}
+}
+
+func formatDiffLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	indent := strings.Repeat(" ", len(line)-len(strings.TrimLeft(line, " ")))
+
+	if strings.HasPrefix(trimmed, "+") {
+		return fmt.Sprintf("%s%s", indent, color.New(color.FgGreen).Sprint(trimmed))
+	}
+	if strings.HasPrefix(trimmed, "-") {
+		return fmt.Sprintf("%s%s", indent, color.New(color.FgRed).Sprint(trimmed))
+	}
+	return fmt.Sprintf("%s%s", indent, trimmed)
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func enableOnCI() {

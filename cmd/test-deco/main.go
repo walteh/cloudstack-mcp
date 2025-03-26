@@ -101,6 +101,10 @@ func gotest(args []string) int {
 func consume(wg *sync.WaitGroup, r io.Reader) {
 	defer wg.Done()
 	reader := bufio.NewReader(r)
+	var currentPackage string
+	var currentTestFile string
+	var currentTest string
+
 	for {
 		l, _, err := reader.ReadLine()
 		if err == io.EOF {
@@ -123,6 +127,34 @@ func consume(wg *sync.WaitGroup, r io.Reader) {
 			}
 		}
 
+		// Handle package run indicators
+		if strings.HasPrefix(trimmed, "=== RUN") {
+			parts := strings.Split(trimmed, " ")
+			if len(parts) >= 3 {
+				testName := parts[2]
+				// Extract package name from test name (assuming TestName or PackageName/TestName format)
+				var packageName string
+				if idx := strings.LastIndex(testName, "/"); idx >= 0 {
+					packageName = testName[:idx]
+				} else {
+					packageName = testName
+				}
+
+				if packageName != currentPackage && packageName != "" {
+					if currentPackage != "" {
+						fmt.Println(color.New(color.Faint).Sprint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+					}
+					currentPackage = packageName
+					fmt.Printf("\n%s\n", color.New(color.Bold, color.FgHiBlue).Sprint("📦 Package: "+currentPackage))
+				}
+			}
+			// Still print the RUN line in a more subtle way
+			fmt.Printf("%s %s\n",
+				color.New(color.Faint).Sprint("  "),
+				color.New(color.Faint).Sprint(trimmed))
+			continue
+		}
+
 		// Handle test failures
 		if strings.HasPrefix(trimmed, "=== FAIL:") {
 			parts := strings.Split(trimmed, " ")
@@ -132,11 +164,17 @@ func consume(wg *sync.WaitGroup, r io.Reader) {
 				if len(parts) >= 4 {
 					duration = parts[3]
 				}
-				fmt.Printf("%s %s %s\n",
-					color.New(fail, color.Bold).Sprint("✗"),
-					color.New(color.Bold).Sprint(testName),
-					color.New(color.Faint).Sprint(duration),
-				)
+				if testName != currentTest {
+					if currentTest != "" {
+						fmt.Println(color.New(color.Faint).Sprint("────────────────────────────────────────"))
+					}
+					currentTest = testName
+					fmt.Printf("\n%s %s %s\n",
+						color.New(fail, color.Bold).Sprint("✗"),
+						color.New(color.Bold).Sprint(testName),
+						color.New(color.Faint).Sprint(duration),
+					)
+				}
 			} else {
 				color.Set(fail)
 				fmt.Printf("%s\n", line)
@@ -144,10 +182,33 @@ func consume(wg *sync.WaitGroup, r io.Reader) {
 			continue
 		}
 
+		// Handle test passes
+		if strings.HasPrefix(trimmed, "--- PASS:") {
+			parts := strings.Split(trimmed, " ")
+			if len(parts) >= 3 {
+				testName := parts[2]
+				duration := ""
+				if len(parts) >= 4 {
+					duration = parts[3]
+				}
+				fmt.Printf("%s %s %s\n",
+					color.New(pass, color.Bold).Sprint("✓"),
+					color.New(color.Bold).Sprint(testName),
+					color.New(color.Faint).Sprint(duration),
+				)
+			} else {
+				color.Set(pass)
+				fmt.Printf("%s\n", line)
+			}
+			continue
+		}
+
 		// Handle test errors
 		if strings.HasPrefix(trimmed, "=== Failed") {
-			color.Set(fail)
-			fmt.Printf("\n%s %s\n", color.New(color.Bold).Sprint("Failed Tests:"), strings.TrimPrefix(line, "=== Failed"))
+			fmt.Printf("\n%s %s\n",
+				color.New(color.Bold, color.FgHiRed).Sprint("❌ Failed Tests:"),
+				color.New(color.Bold).Sprint(strings.TrimPrefix(line, "=== Failed")),
+			)
 			continue
 		}
 
@@ -164,25 +225,64 @@ func consume(wg *sync.WaitGroup, r io.Reader) {
 				diffBuffer = make([]string, 0)
 				fmt.Printf("%s %s\n",
 					color.New(color.Faint).Sprint("  "),
-					color.New(color.Bold).Sprint("Not equal:"),
+					color.New(color.Bold, color.FgHiRed).Sprint("⚠️  Not equal:"),
 				)
 				continue
 			}
 			fmt.Printf("%s %s\n",
 				color.New(color.Faint).Sprint("  "),
-				color.New(color.FgRed).Sprint(strings.TrimSpace(strings.TrimPrefix(line, "Error:"))),
+				color.New(color.FgHiRed).Sprint(strings.TrimSpace(strings.TrimPrefix(line, "Error:"))),
 			)
 			continue
 		}
 
 		// For error traces in test failures
 		if strings.Contains(trimmed, "Error Trace:") {
-			fmt.Printf("%s %s\n",
-				color.New(color.Faint).Sprint("  "),
-				color.New(color.Faint).Sprint(strings.TrimSpace(strings.TrimPrefix(line, "Error Trace:"))),
-			)
+			fileInfo := strings.TrimSpace(strings.TrimPrefix(line, "Error Trace:"))
+			if fileInfo != currentTestFile {
+				currentTestFile = fileInfo
+				fmt.Printf("\n%s %s\n",
+					color.New(color.Faint).Sprint("  "),
+					color.New(color.FgHiBlue).Sprint("📄 File: "+fileInfo),
+				)
+			}
 			continue
 		}
+
+		// For test names in the output
+		if strings.HasPrefix(trimmed, "Test:") {
+			testName := strings.TrimSpace(strings.TrimPrefix(line, "Test:"))
+			if testName != currentTest {
+				fmt.Printf("%s %s\n",
+					color.New(color.Faint).Sprint("  "),
+					color.New(color.Bold).Sprint("🧪 "+testName),
+				)
+			}
+			continue
+		}
+
+		// Format PASS/FAIL/SKIP summary lines
+		if strings.HasPrefix(trimmed, "PASS") ||
+			strings.HasPrefix(trimmed, "FAIL") ||
+			strings.HasPrefix(trimmed, "SKIP") {
+
+			if strings.HasPrefix(trimmed, "PASS") {
+				fmt.Printf("\n%s %s\n",
+					color.New(color.Bold, color.FgGreen).Sprint("✅ PASS"),
+					color.New(color.Faint).Sprint(strings.TrimPrefix(trimmed, "PASS")))
+			} else if strings.HasPrefix(trimmed, "FAIL") {
+				fmt.Printf("\n%s %s\n",
+					color.New(color.Bold, color.FgHiRed).Sprint("❌ FAIL"),
+					color.New(color.Faint).Sprint(strings.TrimPrefix(trimmed, "FAIL")))
+			} else if strings.HasPrefix(trimmed, "SKIP") {
+				fmt.Printf("\n%s %s\n",
+					color.New(color.Bold, color.FgYellow).Sprint("⏭️  SKIP"),
+					color.New(color.Faint).Sprint(strings.TrimPrefix(trimmed, "SKIP")))
+			}
+			continue
+		}
+
+		// For coverage information
 
 		// Pass through all other output as-is
 		fmt.Println(line)

@@ -8,7 +8,6 @@ require (
 	github.com/go-task/task/v3 v3.42.1
 	github.com/google/go-cmp v0.7.0
 	github.com/invopop/jsonschema v0.13.0
-	github.com/k0kubun/pp/v3 v3.4.1
 	github.com/mark3labs/mcp-go v0.16.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/rs/zerolog v1.34.0
@@ -56,6 +55,7 @@ require (
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/smartystreets/goconvey v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/mock v0.5.0 // indirect
@@ -64,7 +64,6 @@ require (
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	mvdan.cc/sh/v3 v3.11.0 // indirect
 )

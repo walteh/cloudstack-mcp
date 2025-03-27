@@ -5,8 +5,8 @@ vars:
         sh: cat go.work | grep -oEh  '\t+(\./*[^[:space:]]*)' | tr -d '\t'
     JSONSCHEMA_FILES:
         sh: find . -type f -name '*.schema.json'
-    MOCKERY_SOURCE_FILES:
-        sh: 'grep -r "//go:mockery" --include="*.go" . | cut -d: -f1 | sort | uniq'
+    GO_ROOT_PKG:
+        sh: cat go.mod | grep -oE '^module[^\S]+' | cut -d' ' -f2
 
 env:
     COMPOSE_BAKE: true
@@ -23,6 +23,51 @@ tasks:
         env: { GOPROXY: https://proxy.golang.org, GOSUMDB: sum.golang.org, GOPRIVATE: github.com/walteh }
         cmds:
             - ./go tool go-mod-upgrade --force
+
+    options:
+        desc: generates options for structs with '//go:opts' comment
+        vars:
+            OPTION_GEN_DATA:
+                sh: |
+                    grep -rl "//go:opts" --include="*.go" . | xargs -I{} bash -c 'd=$(dirname {}); d=${d#./}; awk -v d="$d {}" '\''/\/\/go:opts/ {getline; if($1=="type") print d, $2}'\'' {}'
+            OPTION_GEN_SOURCE_FILES:
+                sh: |
+                    grep -rl "//go:opts" --include="*.go" .
+        generates:
+            - "**/*_opts.gen.go"
+        sources:
+            - '{{.OPTION_GEN_SOURCE_FILES | join ","}}'
+        cmds:
+            - for: { var: OPTION_GEN_DATA, split: "\n" }
+              cmd: |
+                  ./go tool github.com/kazhuravlev/options-gen/cmd/options-gen \
+                    -out-filename={{splitList " " .ITEM | first}}/{{ splitList " " .ITEM | last | lower | trimSuffix "opts" }}_opts.gen.go \
+                    -filename={{ splitList " " .ITEM | rest | first }} \
+                    -from-struct={{ splitList " " .ITEM | last }} \
+                    -pkg={{ splitList " " .ITEM | first | splitList "/" | last }}
+
+    mockery:
+        desc: generates mocks for interfaces with '//go:mock' comment
+        vars:
+            TMP_DIR: ./gen/config
+            MOCKERY_INTERFACE_DATA:
+                sh: |
+                    grep -rl "//go:mock" --include="*.go" . | xargs -I{} bash -c 'd=$(dirname {}); d=${d#./}; awk -v d="$d {}" '\''/\/\/go:mock/ {getline; if($1=="type") print d, $2}'\'' {}'
+            MOCKERY_SOURCE_FILES:
+                sh: |
+                    grep -rl "//go:mock" --include="*.go" .
+        sources:
+            - '{{.MOCKERY_SOURCE_FILES | join ","}}'
+            - .mockery.yaml
+        generates:
+            - ./gen/mocks/**/*_mock.gen.go
+            - ./gen/config/.mockery.yaml
+        cmds:
+            - cmd: mkdir -p {{.TMP_DIR}}
+            - cmd: cp .mockery.yaml {{.TMP_DIR}}/.mockery.yaml
+            - for: { var: "MOCKERY_INTERFACE_DATA", split: "\n", as: ITEM }
+              cmd: yq -i ".packages.\"{{ .GO_ROOT_PKG }}/{{ splitList " " .ITEM | first }}\".interfaces.{{ splitList " " .ITEM | last }} = {}" {{.TMP_DIR}}/.mockery.yaml
+            - cmd: ./go tool github.com/vektra/mockery/v2 --config={{.TMP_DIR}}/.mockery.yaml
 
     cmk:
         desc: Run CloudMonkey command in Docker container

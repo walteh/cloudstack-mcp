@@ -15,7 +15,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/google/go-cmp/cmp"
-	"github.com/k0kubun/pp/v3"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -38,27 +37,6 @@ type Differ interface {
 type DiffFormatter interface {
 	// Format formats a diff string with visual enhancements
 	Format(diff string) string
-}
-
-// TypedDiffExportedOnly performs a diff operation between two values of the same type,
-// considering only exported fields.
-// This is useful when comparing structs where unexported fields should be ignored.
-func TypedDiffExportedOnly[T any](want T, got T) string {
-	printer := pp.New()
-	printer.SetExportedOnly(true)
-	printer.SetColoringEnabled(false)
-
-	return diffTyped(printer, want, got)
-}
-
-// TypedDiff performs a diff operation between two values of the same type,
-// considering all fields (exported and unexported).
-// It supports various types including reflect.Type, reflect.Value, string, and others.
-func TypedDiff[T any](want T, got T, opts ...OptTestingOptsSetter) string {
-	printer := pp.New()
-	printer.SetExportedOnly(false)
-	printer.SetColoringEnabled(false)
-	return diffTyped(printer, want, got, opts...)
 }
 
 // formatStartingWhitespace formats leading whitespace characters to be visible while maintaining proper spacing
@@ -86,26 +64,25 @@ func formatStartingWhitespace(s string, colord *color.Color) string {
 	return out
 }
 
-// diffTyped is the core implementation of TypedDiff and TypedDiffExportedOnly.
-// It handles type-specific diff generation based on the kind of value.
-func diffTyped[T any](printer *pp.PrettyPrinter, want T, got T, opts ...OptTestingOptsSetter) string {
-	// Enable colors
+// TypedDiff performs a diff operation between two values of the same type,
+// considering all fields (exported and unexported).
+// It supports various types including reflect.Type, reflect.Value, string, and others.
 
-	// printer.WithLineInfo = true
+func TypedDiff[T any](want T, got T, opts ...OptTestingOptsSetter) string {
 
 	switch any(want).(type) {
 	case reflect.Type:
 		// Handle reflect.Type values by converting them to string representation
 		wantType := ConvolutedFormatReflectType(any(want).(reflect.Type))
 		gotType := ConvolutedFormatReflectType(any(got).(reflect.Type))
-		return diffTyped(printer, wantType, gotType, opts...)
+		return TypedDiff(wantType, gotType, opts...)
 	case reflect.Value:
 		// Handle reflect.Value by formatting their content
 		w := any(want).(reflect.Value)
 		g := any(got).(reflect.Value)
-		wantValue := ConvolutedFormatReflectValue(w)
-		gotValue := ConvolutedFormatReflectValue(g)
-		return diffTyped(printer, wantValue, gotValue, opts...)
+		wantValue := ConvolutedFormatReflectValueAsJSON(w)
+		gotValue := ConvolutedFormatReflectValueAsJSON(g)
+		return TypedDiff(wantValue, gotValue, opts...)
 	// case string:
 
 	// 	// Handle string values with unified diff

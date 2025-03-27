@@ -10,25 +10,8 @@ import (
 	"testing"
 
 	"github.com/fatih/color"
-	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 )
-
-// TestingOpts contains options for diff testing functionality
-//
-//go:generate go tool options-gen -out-filename=testing_opts.gen.go -from-struct=TestingOpts
-type TestingOpts struct {
-	cmpOpts []cmp.Option
-}
-
-// WithUnexportedType adds an option to allow comparing unexported fields in a type
-// This is useful when testing struct values with private fields
-func WithUnexportedType[T any]() OptTestingOptsSetter {
-	return func(opts *TestingOpts) {
-		var v T
-		opts.cmpOpts = append(opts.cmpOpts, cmp.AllowUnexported(v))
-	}
-}
 
 // ValueComparison provides methods for comparing different types of values
 type ValueComparison struct {
@@ -129,7 +112,7 @@ func unknownValueEqualAsJSON(t *testing.T, want, got reflect.Value) bool {
 // It uses typed diff functionality for the comparison
 func unknownTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) bool {
 	t.Helper()
-	td := TypedDiff(want, got)
+	td := TypedDiff(want, got, opts...)
 	if td != "" {
 		color.NoColor = false
 		str := buildDiffReport(t, "VALUE COMPARISON",

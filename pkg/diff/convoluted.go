@@ -17,29 +17,10 @@ import (
 	"github.com/walteh/yaml"
 )
 
-// FormatOptions configures how types and values are formatted
-type FormatOptions struct {
-	// SortFields determines whether struct fields should be sorted alphabetically
-	SortFields bool
-	// IndentString specifies the string used for indentation
-	IndentString string
-	// MaxDepth limits recursion depth for complex types
-	MaxDepth int
-}
-
-// DefaultFormatOptions returns sensible default formatting options
-func DefaultFormatOptions() FormatOptions {
-	return FormatOptions{
-		SortFields:   true,
-		IndentString: "\t",
-		MaxDepth:     10,
-	}
-}
-
 // ConvolutedFormatReflectValue formats a reflect.Value into a standardized string
 // representation suitable for comparison. It converts the value to JSON and then
 // uses a stable ordering to ensure consistent output.
-func ConvolutedFormatReflectValue(s reflect.Value) any {
+func ConvolutedFormatReflectValueAsJSON(s reflect.Value) any {
 	if !s.IsValid() {
 		return s.String()
 	}

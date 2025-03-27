@@ -9,25 +9,6 @@ import (
 	"github.com/fatih/color"
 )
 
-// EnrichmentOptions defines options for how a diff is enhanced
-type EnrichmentOptions struct {
-	// ShowLineNumbers determines whether to show line numbers in the output
-	ShowLineNumbers bool
-	// ColorOutput determines whether to use colors in the output
-	ColorOutput bool
-	// UseAltFormat uses an alternative formatting style
-	UseAltFormat bool
-}
-
-// DefaultEnrichmentOptions provides sensible default enrichment options
-func DefaultEnrichmentOptions() EnrichmentOptions {
-	return EnrichmentOptions{
-		ShowLineNumbers: false,
-		ColorOutput:     true,
-		UseAltFormat:    false,
-	}
-}
-
 // EnrichCmpDiff enhances a diff produced by cmp.Diff with colors and formatting
 // to make it more readable.
 func EnrichCmpDiff(diff string) string {

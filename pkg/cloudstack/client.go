@@ -15,6 +15,10 @@ import (
 	errors "gitlab.com/tozd/go/errors"
 )
 
+//go:mock
+type API interface {
+}
+
 // Client represents a CloudStack API client
 type Client struct {
 	cs     *cloudstack.CloudStackClient

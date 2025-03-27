@@ -8,7 +8,7 @@ require (
 	github.com/go-task/task/v3 v3.42.1
 	github.com/google/go-cmp v0.7.0
 	github.com/invopop/jsonschema v0.13.0
-	github.com/mark3labs/mcp-go v0.16.0
+	github.com/mark3labs/mcp-go v0.17.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3

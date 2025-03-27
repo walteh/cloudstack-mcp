@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# if mod tidy, run the task mod-tidy
+if [ "${1:-}" == "mod" ] && [ "${2:-}" == "tidy" ]; then
+	./task go-mod-tidy
+	exit $?
+fi
+
+# if mod upgrade, run the task mod-upgrade
+if [ "${1:-}" == "mod" ] && [ "${2:-}" == "upgrade" ]; then
+	./task go-mod-upgrade
+	exit $?
+fi
+
 # if first argument is "test", use gotestsum
 if [ "${1:-}" == "test" ]; then
 	shift

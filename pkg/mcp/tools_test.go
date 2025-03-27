@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	csgo "github.com/apache/cloudstack-go/v2/cloudstack"
+	genericlist "github.com/bahlo/generic-list-go"
 	"github.com/invopop/jsonschema"
 	"github.com/stretchr/testify/require"
+	"github.com/walteh/cloudstack-mcp/pkg/diff"
 	"github.com/walteh/cloudstack-mcp/pkg/mcp"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
@@ -51,7 +53,14 @@ func Test_CloudStackApiToJsonSchema(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := mcp.CloudStackApiToJsonSchema(t.Context(), tt.args.api)
 			require.NoError(t, err)
-			require.Equal(t, tt.want, got)
+
+			diff.RequireKnownValueEqual(t, tt.want, got,
+				diff.WithUnexportedType[jsonschema.Schema](),
+				diff.WithUnexportedType[orderedmap.OrderedMap[string, *jsonschema.Schema]](),
+				diff.WithUnexportedType[orderedmap.Pair[string, *jsonschema.Schema]](),
+				diff.WithUnexportedType[genericlist.Element[*orderedmap.Pair[string, *jsonschema.Schema]]](),
+				diff.WithUnexportedType[genericlist.List[*orderedmap.Pair[string, *jsonschema.Schema]]](),
+			)
 		})
 	}
 }

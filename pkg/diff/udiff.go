@@ -6,64 +6,60 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/k0kubun/pp/v3"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/sourcegraph/go-diff/diff"
 )
 
+// UnifiedDiff represents a parsed unified diff
 type UnifiedDiff struct {
 	FileDiff *diff.FileDiff
 }
 
-// highlightChanges finds the specific changes between two lines and returns a formatted string
-// with just the changes bolded while keeping the rest of the line with normal styling
-func highlightChanges(oldLine, newLine string, lineColor *color.Color) string {
-	dmp := diffmatchpatch.New()
-	// Use character-level diffing for better precision
-	diffs := dmp.DiffMain(oldLine, newLine, false)
-	// Enable cleanup to merge nearby edits for more meaningful highlighting
-	diffs = dmp.DiffCleanupSemantic(diffs)
-
-	var result strings.Builder
-	for _, d := range diffs {
-		switch d.Type {
-		case diffmatchpatch.DiffInsert:
-			// For insertions, show the added text in bold with the line color
-			result.WriteString(color.New(color.FgBlue, color.Bold).Sprint(d.Text))
-		case diffmatchpatch.DiffEqual:
-			// For unchanged text, use normal styling with the original line color
-			result.WriteString(lineColor.Add(color.Faint).Sprint(d.Text))
-		case diffmatchpatch.DiffDelete:
-			// Skip deletions when showing the new line
-			// They are shown in the old line
-		}
-	}
-	return result.String()
+// DiffLine represents a line in the unified diff with metadata
+type DiffLine struct {
+	Content string
+	Type    DiffLineType
+	Changes []DiffChange // Character-level changes within the line
 }
 
-// highlightDeletedText shows the old line with deleted parts highlighted
-func highlightDeletedText(oldLine, newLine string, lineColor *color.Color) string {
-	dmp := diffmatchpatch.New()
-	diffs := dmp.DiffMain(oldLine, newLine, false)
-	diffs = dmp.DiffCleanupSemantic(diffs)
+// DiffLineType indicates whether a line is context, addition, or removal
+type DiffLineType string
 
-	var result strings.Builder
-	for _, d := range diffs {
-		switch d.Type {
-		case diffmatchpatch.DiffDelete:
-			// For deletions, show the removed text in bold
-			result.WriteString(color.New(color.FgRed, color.Bold).Sprint(d.Text))
-		case diffmatchpatch.DiffEqual:
-			// For unchanged text, use normal styling with the original line color
-			result.WriteString(lineColor.Add(color.Faint).Sprint(d.Text))
-		case diffmatchpatch.DiffInsert:
-			// Skip insertions when showing the old line
-			// They are shown in the new line
-		}
-	}
-	return result.String()
+const (
+	DiffLineContext DiffLineType = "context"
+	DiffLineAdded   DiffLineType = "added"
+	DiffLineRemoved DiffLineType = "removed"
+)
+
+// DiffChange represents a character-level change in a line
+type DiffChange struct {
+	Text string
+	Type DiffChangeType
 }
 
+// DiffChangeType indicates whether a change is an addition, removal, or unchanged text
+type DiffChangeType string
+
+const (
+	DiffChangeUnchanged DiffChangeType = "unchanged"
+	DiffChangeAdded     DiffChangeType = "added"
+	DiffChangeRemoved   DiffChangeType = "removed"
+)
+
+// DiffHunk represents a hunk in a unified diff
+type DiffHunk struct {
+	Header string
+	Lines  []DiffLine
+}
+
+// ProcessedDiff represents a fully processed diff with all metadata
+type ProcessedDiff struct {
+	OrigFile string
+	NewFile  string
+	Hunks    []DiffHunk
+}
+
+// ParseUnifiedDiff parses a unified diff string into a structured format
 func ParseUnifiedDiff(diffStr string) (*UnifiedDiff, error) {
 	if diffStr == "" {
 		return nil, errors.New("empty diff string")
@@ -83,8 +79,6 @@ func ParseUnifiedDiff(diffStr string) (*UnifiedDiff, error) {
 	}
 	diffStr = strings.Join(lines, "\n")
 
-	fmt.Println(diffStr)
-
 	// Parse the unified diff using sourcegraph/go-diff
 	fileDiff, err := diff.ParseFileDiff([]byte(diffStr))
 	if err != nil {
@@ -92,89 +86,169 @@ func ParseUnifiedDiff(diffStr string) (*UnifiedDiff, error) {
 		return nil, err
 	}
 
-	pp.Println(fileDiff)
-
 	return &UnifiedDiff{
 		FileDiff: fileDiff,
 	}, nil
 }
 
-func (ud *UnifiedDiff) PrettyPrint() string {
+// ProcessDiff converts a UnifiedDiff into a ProcessedDiff
+// This is the core logic that can be tested separately from color formatting
+func (ud *UnifiedDiff) ProcessDiff() (*ProcessedDiff, error) {
 	if ud == nil || ud.FileDiff == nil {
-		return ""
+		return nil, errors.New("no diff data available")
 	}
 
+	result := &ProcessedDiff{
+		OrigFile: ud.FileDiff.OrigName,
+		NewFile:  ud.FileDiff.NewName,
+	}
+
+	// Process each hunk
+	for _, hunk := range ud.FileDiff.Hunks {
+		processedHunk := DiffHunk{
+			Header: fmt.Sprintf("@@ -%d,%d +%d,%d @@%s",
+				hunk.OrigStartLine, hunk.OrigLines,
+				hunk.NewStartLine, hunk.NewLines,
+				hunk.Section),
+		}
+
+		// Group related changes for better highlighting
+		lineGroups := groupRelatedChanges(strings.Split(string(hunk.Body), "\n"))
+
+		// Process each group of related changes
+		for _, group := range lineGroups {
+			// Add context lines
+			for _, line := range group.contextLines {
+				processedHunk.Lines = append(processedHunk.Lines, DiffLine{
+					Content: line,
+					Type:    DiffLineContext,
+					Changes: []DiffChange{
+						{Text: line, Type: DiffChangeUnchanged},
+					},
+				})
+			}
+
+			// Process changes - if we have a 1:1 mapping, do character-level diffing
+			if len(group.oldLines) == 1 && len(group.newLines) == 1 {
+				oldLine := group.oldLines[0]
+				newLine := group.newLines[0]
+
+				// Process the removed line with character-level changes
+				removedLine := processLineChanges(oldLine, newLine, DiffLineRemoved)
+				processedHunk.Lines = append(processedHunk.Lines, removedLine)
+
+				// Process the added line with character-level changes
+				addedLine := processLineChanges(oldLine, newLine, DiffLineAdded)
+				processedHunk.Lines = append(processedHunk.Lines, addedLine)
+			} else {
+				// Add all removals
+				for _, line := range group.oldLines {
+					processedHunk.Lines = append(processedHunk.Lines, DiffLine{
+						Content: line,
+						Type:    DiffLineRemoved,
+						Changes: []DiffChange{
+							{Text: line, Type: DiffChangeRemoved},
+						},
+					})
+				}
+
+				// Add all additions
+				for _, line := range group.newLines {
+					processedHunk.Lines = append(processedHunk.Lines, DiffLine{
+						Content: line,
+						Type:    DiffLineAdded,
+						Changes: []DiffChange{
+							{Text: line, Type: DiffChangeAdded},
+						},
+					})
+				}
+
+				// Add all context lines
+				for _, line := range group.contextLines {
+					processedHunk.Lines = append(processedHunk.Lines, DiffLine{
+						Content: line,
+						Type:    DiffLineContext,
+						Changes: []DiffChange{
+							{Text: line, Type: DiffChangeUnchanged},
+						},
+					})
+				}
+			}
+		}
+
+		result.Hunks = append(result.Hunks, processedHunk)
+	}
+
+	return result, nil
+}
+
+// processLineChanges performs character-level diffing between two lines
+
+// PrettyPrint formats the unified diff with colors
+func (ud *UnifiedDiff) PrettyPrint() string {
+	processed, err := ud.ProcessDiff()
+	if err != nil {
+		return err.Error()
+	}
+
+	return FormatDiff(processed)
+}
+
+// FormatDiff applies color formatting to a ProcessedDiff
+func FormatDiff(diff *ProcessedDiff) string {
 	prevNoColor := color.NoColor
 	defer func() {
 		color.NoColor = prevNoColor
 	}()
 	color.NoColor = false
 
-	// Use more distinct colors for better readability
+	// Define formatting constants
 	expectedPrefix := fmt.Sprintf("[%s] %s", color.New(color.FgBlue, color.Bold).Sprint("want"), color.New(color.Faint).Sprint(" +"))
 	actualPrefix := fmt.Sprintf("[%s] %s", color.New(color.Bold, color.FgRed).Sprint("got"), color.New(color.Faint).Sprint("  -"))
 
 	var result []string
 
 	// Add file headers with proper formatting
-	if ud.FileDiff.OrigName != "" {
+	if diff.OrigFile != "" {
 		result = append(result, fmt.Sprintf("%s %s [%s]",
 			color.New(color.Faint).Sprint("---"),
-			color.New(color.FgBlue).Sprint(ud.FileDiff.OrigName),
+			color.New(color.FgBlue).Sprint(diff.OrigFile),
 			color.New(color.FgBlue, color.Bold).Sprint("want")))
 	}
-	if ud.FileDiff.NewName != "" {
+	if diff.NewFile != "" {
 		result = append(result, fmt.Sprintf("%s %s [%s]",
 			color.New(color.Faint).Sprint("+++"),
-			color.New(color.FgRed).Sprint(ud.FileDiff.NewName),
+			color.New(color.FgRed).Sprint(diff.NewFile),
 			color.New(color.FgRed, color.Bold).Sprint("got")))
 	}
 
 	// Process each hunk
-	for _, hunk := range ud.FileDiff.Hunks {
+	for _, hunk := range diff.Hunks {
 		// Add hunk header
-		result = append(result, color.New(color.Faint).Sprintf("@@ -%d,%d +%d,%d @@%s",
-			hunk.OrigStartLine, hunk.OrigLines,
-			hunk.NewStartLine, hunk.NewLines,
-			hunk.Section))
+		result = append(result, color.New(color.Faint).Sprint(hunk.Header))
 
-		// Process hunk body
-		lines := strings.Split(string(hunk.Body), "\n")
-
-		// Group related removals and additions for better comparison
-		lineGroups := groupRelatedChanges(lines)
-
-		// Process each group of related changes
-		for _, group := range lineGroups {
-			// Handle context lines
-			for _, line := range group.contextLines {
-				result = append(result, strings.Repeat(" ", 9)+formatStartingWhitespace(line, color.New(color.Faint)))
-			}
-
-			// Handle changes
-			if len(group.oldLines) == 1 && len(group.newLines) == 1 {
-				// One-to-one mapping - ideal for highlighting specific differences
-				oldLine := group.oldLines[0]
-				newLine := group.newLines[0]
-
-				// Show original line with deleted parts highlighted
-				redColor := color.New(color.FgRed)
-				highlightedOld := highlightDeletedText(oldLine, newLine, redColor)
-				result = append(result, actualPrefix+formatStartingWhitespace(highlightedOld, redColor))
-
-				// Show new line with added parts highlighted
-				blueColor := color.New(color.FgBlue)
-				highlightedNew := highlightChanges(oldLine, newLine, blueColor)
-				result = append(result, expectedPrefix+formatStartingWhitespace(highlightedNew, blueColor))
-			} else {
-				// Process all removals first
-				for _, line := range group.oldLines {
-					result = append(result, actualPrefix+formatStartingWhitespace(line, color.New(color.FgRed)))
+		// Process each line
+		for _, line := range hunk.Lines {
+			switch line.Type {
+			case DiffLineContext:
+				result = append(result, strings.Repeat(" ", 9)+formatStartingWhitespace(line.Content, color.New(color.Faint)))
+			case DiffLineRemoved:
+				if len(line.Changes) > 0 {
+					// Format with character-level highlighting
+					formatted := formatLineChanges(line, color.New(color.FgRed))
+					result = append(result, actualPrefix+formatStartingWhitespace(formatted, color.New(color.FgRed)))
+				} else {
+					// Simple line removal
+					result = append(result, actualPrefix+formatStartingWhitespace(line.Content, color.New(color.FgRed)))
 				}
-
-				// Then process all additions
-				for _, line := range group.newLines {
-					result = append(result, expectedPrefix+formatStartingWhitespace(line, color.New(color.FgBlue)))
+			case DiffLineAdded:
+				if len(line.Changes) > 0 {
+					// Format with character-level highlighting
+					formatted := formatLineChanges(line, color.New(color.FgBlue))
+					result = append(result, expectedPrefix+formatStartingWhitespace(formatted, color.New(color.FgBlue)))
+				} else {
+					// Simple line addition
+					result = append(result, expectedPrefix+formatStartingWhitespace(line.Content, color.New(color.FgBlue)))
 				}
 			}
 		}
@@ -185,6 +259,24 @@ func (ud *UnifiedDiff) PrettyPrint() string {
 	return "\n" + strings.Join(result, "\n")
 }
 
+// formatLineChanges applies color formatting to character-level changes
+func formatLineChanges(line DiffLine, lineColor *color.Color) string {
+	var result strings.Builder
+
+	for _, change := range line.Changes {
+		switch change.Type {
+		case DiffChangeUnchanged:
+			result.WriteString(lineColor.Add(color.Faint).Sprint(change.Text))
+		case DiffChangeAdded:
+			result.WriteString(color.New(color.FgBlue, color.Bold).Sprint(change.Text))
+		case DiffChangeRemoved:
+			result.WriteString(color.New(color.FgRed, color.Bold).Sprint(change.Text))
+		}
+	}
+
+	return result.String()
+}
+
 // lineGroup represents a group of related changes in a diff
 type lineGroup struct {
 	contextLines []string
@@ -193,7 +285,6 @@ type lineGroup struct {
 }
 
 // groupRelatedChanges processes diff lines and groups them into related changes
-// This helps with matching corresponding add/remove lines for better diff highlighting
 func groupRelatedChanges(lines []string) []lineGroup {
 	var groups []lineGroup
 	var currentGroup lineGroup
@@ -202,7 +293,11 @@ func groupRelatedChanges(lines []string) []lineGroup {
 	addGroup := func() {
 		if len(currentGroup.contextLines) > 0 || len(currentGroup.oldLines) > 0 || len(currentGroup.newLines) > 0 {
 			groups = append(groups, currentGroup)
-			currentGroup = lineGroup{}
+			currentGroup = lineGroup{
+				contextLines: []string{},
+				oldLines:     []string{},
+				newLines:     []string{},
+			}
 		}
 	}
 
@@ -223,6 +318,10 @@ func groupRelatedChanges(lines []string) []lineGroup {
 			} else {
 				currentGroup.newLines = append(currentGroup.newLines, line[1:])
 			}
+		case ' ':
+			// Context line
+			line = line[1:]
+			fallthrough
 		default:
 			// Context line
 			if inChange {
@@ -244,4 +343,63 @@ func groupRelatedChanges(lines []string) []lineGroup {
 	addGroup()
 
 	return groups
+}
+
+func processLineChanges(oldLine, newLine string, lineType DiffLineType) DiffLine {
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(oldLine, newLine, false)
+	diffs = dmp.DiffCleanupSemantic(diffs)
+
+	if len(diffs) == 0 {
+		return DiffLine{
+			Type:    lineType,
+			Content: oldLine,
+			Changes: []DiffChange{
+				{Text: oldLine, Type: DiffChangeUnchanged},
+			},
+		}
+	}
+
+	result := DiffLine{
+		Type:    lineType,
+		Content: oldLine,
+		Changes: []DiffChange{},
+	}
+
+	if lineType == DiffLineAdded {
+		result.Content = newLine
+	}
+
+	// Process character-level changes based on line type
+	for _, d := range diffs {
+		changeType := DiffChangeUnchanged
+
+		switch d.Type {
+		case diffmatchpatch.DiffEqual:
+			changeType = DiffChangeUnchanged
+		case diffmatchpatch.DiffInsert:
+			// Insertions only apply to added lines
+			if lineType == DiffLineAdded {
+				changeType = DiffChangeAdded
+			} else if lineType == DiffLineRemoved {
+				continue // Skip this change for removed lines
+			}
+		case diffmatchpatch.DiffDelete:
+			// Deletions only apply to removed lines
+			if lineType == DiffLineRemoved {
+				changeType = DiffChangeRemoved
+			} else if lineType == DiffLineAdded {
+				continue // Skip this change for added lines
+			}
+		default:
+			panic(fmt.Sprintf("unknown diff type: %d", d.Type))
+		}
+
+		result.Changes = append(result.Changes, DiffChange{
+			Text: d.Text,
+			Type: changeType,
+		})
+	}
+
+	return result
 }

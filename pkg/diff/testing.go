@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/fatih/color"
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +28,7 @@ func unknownValueEqualAsJSON(t *testing.T, want, got reflect.Value) bool {
 	return true
 }
 
-func unknownTypeEqual(t *testing.T, want, got reflect.Type) bool {
+func unknownTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) bool {
 	t.Helper()
 	td := TypedDiff(want, got)
 	if td != "" {
@@ -107,9 +108,9 @@ func shortenOutputIfNeeded(s string) string {
 	return strings.Join(result, "\n")
 }
 
-func knownTypeEqual[T any](t *testing.T, want, got T) bool {
+func knownTypeEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) bool {
 	t.Helper()
-	td := TypedDiff(want, got)
+	td := TypedDiff(want, got, opts...)
 	if td != "" {
 		color.NoColor = false
 		str := color.New(color.FgHiYellow, color.Faint).Sprintf("\n\n============= TYPE COMPARISON START =============\n\n")
@@ -123,9 +124,9 @@ func knownTypeEqual[T any](t *testing.T, want, got T) bool {
 	return true
 }
 
-func RequireUnknownTypeEqual(t *testing.T, want, got reflect.Type) {
+func RequireUnknownTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) {
 	t.Helper()
-	if !unknownTypeEqual(t, want, got) {
+	if !unknownTypeEqual(t, want, got, opts...) {
 		require.Fail(t, "type mismatch")
 	}
 }
@@ -137,9 +138,21 @@ func RequireUnknownValueEqualAsJSON(t *testing.T, want, got reflect.Value) {
 	}
 }
 
-func RequireKnownValueEqual[T any](t *testing.T, want, got T) {
+func RequireKnownValueEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) {
 	t.Helper()
-	if !knownTypeEqual(t, want, got) {
+	if !knownTypeEqual(t, want, got, opts...) {
 		require.Fail(t, "value mismatch")
+	}
+}
+
+//go:generate go tool options-gen -out-filename=testing_opts.gen.go -from-struct=TestingOpts
+type TestingOpts struct {
+	cmpOpts []cmp.Option
+}
+
+func WithUnexportedType[T any]() OptTestingOptsSetter {
+	return func(opts *TestingOpts) {
+		var v T
+		opts.cmpOpts = append(opts.cmpOpts, cmp.AllowUnexported(v))
 	}
 }

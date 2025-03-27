@@ -43,12 +43,12 @@ if [ "${1:-}" == "test" ]; then
 	fi
 
 	# Use our truncation wrapper - go run ./cmd/test-deco
-	./scripts/truncate-test-logs.sh "$max_lines" -- go run ./cmd/test-deco go tool gotest.tools/gotestsum \
+	./scripts/truncate-test-logs.sh "$max_lines" -- go tool gotest.tools/gotestsum \
 		--format pkgname \
 		--format-icons hivis \
 		--hide-summary=skipped \
-		--jsonfile=test.json \
-		--raw-command -- go test -v -vet=all -json -cover $extra_args "${real_args[@]}"
+		\
+		--raw-command -- go test -v -vet=all -json -cover $extra_args "${real_args[@]}" # --jsonfile=test.json \
 
 	exit $?
 fi

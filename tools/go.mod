@@ -17,6 +17,8 @@ tool github.com/oligot/go-mod-upgrade
 
 tool github.com/NickyBoy89/java2go
 
+tool github.com/kazhuravlev/options-gen/cmd/options-gen
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.2 // indirect
@@ -60,6 +62,7 @@ require (
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/kazhuravlev/options-gen v0.33.2 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect

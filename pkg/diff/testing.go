@@ -1,3 +1,5 @@
+// Package diff - Testing Utilities
+// This file contains testing utilities for comparing values and generating diff reports
 package diff
 
 import (
@@ -12,47 +14,189 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestingOpts contains options for diff testing functionality
+//
+//go:generate go tool options-gen -out-filename=testing_opts.gen.go -from-struct=TestingOpts
+type TestingOpts struct {
+	cmpOpts []cmp.Option
+}
+
+// WithUnexportedType adds an option to allow comparing unexported fields in a type
+// This is useful when testing struct values with private fields
+func WithUnexportedType[T any]() OptTestingOptsSetter {
+	return func(opts *TestingOpts) {
+		var v T
+		opts.cmpOpts = append(opts.cmpOpts, cmp.AllowUnexported(v))
+	}
+}
+
+// ValueComparison provides methods for comparing different types of values
+type ValueComparison struct {
+	t *testing.T
+}
+
+// NewValueComparison creates a new value comparison helper for testing
+func NewValueComparison(t *testing.T) *ValueComparison {
+	return &ValueComparison{t: t}
+}
+
+// Equal compares two values of the same type and returns true if they are equal
+func Equal[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) bool {
+	t.Helper()
+	return knownTypeEqual(t, want, got, opts...)
+}
+
+// RequireEqual compares two values and fails the test if they are not equal
+func RequireEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) {
+	t.Helper()
+	if !knownTypeEqual(t, want, got, opts...) {
+		require.Fail(t, "value mismatch")
+	}
+}
+
+// TypeEqual compares two reflect.Type values and returns true if they are equal
+func TypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) bool {
+	t.Helper()
+	return unknownTypeEqual(t, want, got, opts...)
+}
+
+// RequireTypeEqual compares two reflect.Type values and fails the test if they are not equal
+func RequireTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) {
+	t.Helper()
+	if !unknownTypeEqual(t, want, got, opts...) {
+		require.Fail(t, "type mismatch")
+	}
+}
+
+// ValueEqual compares two reflect.Value values and returns true if they are equal
+func ValueEqual(t *testing.T, want, got reflect.Value) bool {
+	t.Helper()
+	return unknownValueEqualAsJSON(t, want, got)
+}
+
+// RequireValueEqual compares two reflect.Value values and fails the test if they are not equal
+func RequireValueEqual(t *testing.T, want, got reflect.Value) {
+	t.Helper()
+	if !unknownValueEqualAsJSON(t, want, got) {
+		require.Fail(t, "value mismatch")
+	}
+}
+
+// Legacy functions - maintained for backward compatibility
+// These functions directly call into the new non-method functions
+
+// RequireUnknownTypeEqual compares two reflect.Type values and fails the test if they are not equal
+// This is maintained for backward compatibility
+func RequireUnknownTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) {
+	t.Helper()
+	RequireTypeEqual(t, want, got, opts...)
+}
+
+// RequireUnknownValueEqualAsJSON compares two reflect.Value values and fails the test if they are not equal
+// This is maintained for backward compatibility
+func RequireUnknownValueEqualAsJSON(t *testing.T, want, got reflect.Value) {
+	t.Helper()
+	RequireValueEqual(t, want, got)
+}
+
+// RequireKnownValueEqual compares two values of the same type and fails the test if they are not equal
+// This is maintained for backward compatibility
+func RequireKnownValueEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) {
+	t.Helper()
+	RequireEqual(t, want, got, opts...)
+}
+
+// Core implementation functions
+
+// unknownValueEqualAsJSON compares two reflect.Value values and returns true if they are equal
+// It uses typed diff functionality with JSON formatting for the comparison
 func unknownValueEqualAsJSON(t *testing.T, want, got reflect.Value) bool {
+	t.Helper()
 	td := TypedDiff(want, got)
 	if td != "" {
 		color.NoColor = false
-		str := color.New(color.FgHiYellow, color.Faint).Sprintf("\n\n============= VALUE COMPARISON START =============\n\n")
-		str += fmt.Sprintf("%s\n\n", color.YellowString("%s", t.Name()))
-		str += fmt.Sprintf("want type: %s\n", color.YellowString(want.Type().String()))
-		str += fmt.Sprintf("got type:  %s\n\n\n", color.YellowString(got.Type().String()))
-		str += shortenOutputIfNeeded(td) + "\n\n"
-		str += color.New(color.FgHiYellow, color.Faint).Sprintf("============= VALUE COMPARISON END ===============\n\n")
+		str := buildDiffReport(t, "VALUE COMPARISON",
+			fmt.Sprintf("want type: %s\n", color.YellowString(want.Type().String())),
+			fmt.Sprintf("got type:  %s", color.YellowString(got.Type().String())),
+			td)
 		t.Log("value comparison report:\n" + str)
 		return false
 	}
 	return true
 }
 
+// unknownTypeEqual compares two reflect.Type values and returns true if they are equal
+// It uses typed diff functionality for the comparison
 func unknownTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) bool {
 	t.Helper()
 	td := TypedDiff(want, got)
 	if td != "" {
 		color.NoColor = false
-		str := color.New(color.FgHiYellow, color.Faint).Sprintf("\n\n============= VALUE COMPARISON START =============\n\n")
-		str += fmt.Sprintf("%s\n\n", color.YellowString("%s", t.Name()))
-		str += fmt.Sprintf("want type: %s\n", color.YellowString(want.String()))
-		str += fmt.Sprintf("got type:  %s\n\n\n", color.YellowString(got.String()))
-		str += shortenOutputIfNeeded(td) + "\n\n"
-		str += color.New(color.FgHiYellow, color.Faint).Sprintf("============= VALUE COMPARISON END ===============\n\n")
+		str := buildDiffReport(t, "VALUE COMPARISON",
+			fmt.Sprintf("want type: %s\n", color.YellowString(want.String())),
+			fmt.Sprintf("got type:  %s", color.YellowString(got.String())),
+			td)
 		t.Log("value comparison report:\n" + str)
 		return false
 	}
 	return true
 }
 
+// knownTypeEqual compares two values of the same type and returns true if they are equal
+// It uses typed diff functionality for the comparison
+func knownTypeEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) bool {
+	t.Helper()
+	td := TypedDiff(want, got, opts...)
+	if td != "" {
+		color.NoColor = false
+		str := buildDiffReport(t, "TYPE COMPARISON",
+			fmt.Sprintf("type: %s", color.YellowString(reflect.TypeOf(want).String())),
+			"",
+			td)
+		t.Log("type comparison report:\n" + str)
+		return false
+	}
+	return true
+}
+
+// buildDiffReport creates a formatted diff report with header and details
+func buildDiffReport(t *testing.T, title string, header1 string, header2 string, diffContent string) string {
+	var result strings.Builder
+
+	// Add report header
+	result.WriteString(color.New(color.FgHiYellow, color.Faint).Sprintf("\n\n============= %s START =============\n\n", title))
+	result.WriteString(fmt.Sprintf("%s\n\n", color.YellowString("%s", t.Name())))
+
+	// Add type/value information headers if provided
+	if header1 != "" {
+		result.WriteString(header1 + "\n")
+	}
+	if header2 != "" {
+		result.WriteString(header2 + "\n\n\n")
+	}
+
+	// Add diff content
+	result.WriteString(shortenOutputIfNeeded(diffContent) + "\n\n")
+
+	// Add report footer
+	result.WriteString(color.New(color.FgHiYellow, color.Faint).Sprintf("============= %s END ===============\n\n", title))
+
+	return result.String()
+}
+
+// ANSI escape code regex pattern
 const ansi = "[\u001B\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PRZcf-ntqry=><~]))"
 
 var re = regexp.MustCompile(ansi)
 
+// Strip removes ANSI color codes from a string
 func Strip(str string) string {
 	return re.ReplaceAllString(str, "")
 }
 
+// shortenOutputIfNeeded truncates long diffs to make them more readable
+// It keeps the first and last few lines of each section to provide
+// a more concise view of the differences
 func shortenOutputIfNeeded(s string) string {
 	lines := strings.Split(s, "\n")
 	var result []string
@@ -106,53 +250,4 @@ func shortenOutputIfNeeded(s string) string {
 	}
 
 	return strings.Join(result, "\n")
-}
-
-func knownTypeEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) bool {
-	t.Helper()
-	td := TypedDiff(want, got, opts...)
-	if td != "" {
-		color.NoColor = false
-		str := color.New(color.FgHiYellow, color.Faint).Sprintf("\n\n============= TYPE COMPARISON START =============\n\n")
-		str += fmt.Sprintf("%s\n\n", color.YellowString("%s", t.Name()))
-		str += fmt.Sprintf("type: %s\n", color.YellowString(reflect.TypeOf(want).String()))
-		str += shortenOutputIfNeeded(td) + "\n\n"
-		str += color.New(color.FgHiYellow, color.Faint).Sprintf("============= TYPE COMPARISON END ===============\n\n")
-		t.Log("type comparison report:\n" + str)
-		return false
-	}
-	return true
-}
-
-func RequireUnknownTypeEqual(t *testing.T, want, got reflect.Type, opts ...OptTestingOptsSetter) {
-	t.Helper()
-	if !unknownTypeEqual(t, want, got, opts...) {
-		require.Fail(t, "type mismatch")
-	}
-}
-
-func RequireUnknownValueEqualAsJSON(t *testing.T, want, got reflect.Value) {
-	t.Helper()
-	if !unknownValueEqualAsJSON(t, want, got) {
-		require.Fail(t, "value mismatch")
-	}
-}
-
-func RequireKnownValueEqual[T any](t *testing.T, want, got T, opts ...OptTestingOptsSetter) {
-	t.Helper()
-	if !knownTypeEqual(t, want, got, opts...) {
-		require.Fail(t, "value mismatch")
-	}
-}
-
-//go:generate go tool options-gen -out-filename=testing_opts.gen.go -from-struct=TestingOpts
-type TestingOpts struct {
-	cmpOpts []cmp.Option
-}
-
-func WithUnexportedType[T any]() OptTestingOptsSetter {
-	return func(opts *TestingOpts) {
-		var v T
-		opts.cmpOpts = append(opts.cmpOpts, cmp.AllowUnexported(v))
-	}
 }

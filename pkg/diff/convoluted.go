@@ -1,3 +1,6 @@
+// Package diff - Type and Value Formatting
+// This file contains functions for formatting Go types and values
+// for better diff representation
 package diff
 
 import (
@@ -14,12 +17,34 @@ import (
 	"github.com/walteh/yaml"
 )
 
-func ConvolutedFormatReflectValue(s reflect.Value) any {
+// FormatOptions configures how types and values are formatted
+type FormatOptions struct {
+	// SortFields determines whether struct fields should be sorted alphabetically
+	SortFields bool
+	// IndentString specifies the string used for indentation
+	IndentString string
+	// MaxDepth limits recursion depth for complex types
+	MaxDepth int
+}
 
+// DefaultFormatOptions returns sensible default formatting options
+func DefaultFormatOptions() FormatOptions {
+	return FormatOptions{
+		SortFields:   true,
+		IndentString: "\t",
+		MaxDepth:     10,
+	}
+}
+
+// ConvolutedFormatReflectValue formats a reflect.Value into a standardized string
+// representation suitable for comparison. It converts the value to JSON and then
+// uses a stable ordering to ensure consistent output.
+func ConvolutedFormatReflectValue(s reflect.Value) any {
 	if !s.IsValid() {
 		return s.String()
 	}
 
+	// Convert the value to JSON
 	buf := bytes.NewBuffer(nil)
 	enc := json.NewEncoder(buf)
 	enc.SetIndent("", "\t")
@@ -28,22 +53,19 @@ func ConvolutedFormatReflectValue(s reflect.Value) any {
 		panic(err)
 	}
 
+	// Use ordered map to ensure stable field ordering
 	mapd := yaml.NewOrderedMap()
-
 	if err := json.Unmarshal(buf.Bytes(), mapd); err != nil {
 		panic(err)
 	}
-	ms := mapd.ToMapSlice()
-	keys := []string{}
-	for _, key := range ms {
-		keys = append(keys, key.Key.(string))
-	}
-	sort.Strings(keys)
 
+	// Sort keys alphabetically
+	ms := mapd.ToMapSlice()
+	keys := extractAndSortKeys(ms)
 	ms.SortKeys(keys...)
 
+	// Re-encode to JSON with consistent ordering
 	buf.Reset()
-
 	enc2 := json.NewEncoder(buf)
 	enc2.SetIndent("", "\t")
 	if err := enc2.Encode(ms); err != nil {
@@ -53,8 +75,24 @@ func ConvolutedFormatReflectValue(s reflect.Value) any {
 	return buf.String()
 }
 
-// FormatStructString takes a string containing a Go struct definition and formats it for better readability
+// extractAndSortKeys extracts keys from a MapSlice and returns them sorted
+func extractAndSortKeys(ms yaml.MapSlice) []string {
+	keys := []string{}
+	for _, key := range ms {
+		if keyStr, ok := key.Key.(string); ok {
+			keys = append(keys, keyStr)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// ConvolutedFormatReflectType formats a reflect.Type into a standardized string
+// representation.
+// It handles struct types specially, formatting them with consistent field ordering
+// and indentation for better readability.
 func ConvolutedFormatReflectType(s reflect.Type) string {
+	// Only process struct types specially
 	if !strings.Contains(s.String(), "struct {") {
 		return s.String()
 	}
@@ -62,18 +100,19 @@ func ConvolutedFormatReflectType(s reflect.Type) string {
 	// Create a valid Go file from the struct
 	src := fmt.Sprintf("package p\ntype T %s", s)
 
+	// Handle string escaping for proper parsing
 	src = strings.ReplaceAll(src, "\\\"", "$$$$")
 	src = strings.ReplaceAll(src, "\"", "`")
 	src = strings.ReplaceAll(src, "$$$$", "\"")
 
-	// Parse the file
+	// Parse the file using Go's AST parser
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "", src, parser.ParseComments)
 	if err != nil {
 		return s.String() // Return original if parsing fails
 	}
 
-	// Find the struct type
+	// Find the struct type in the AST
 	var structType *ast.StructType
 	ast.Inspect(file, func(n ast.Node) bool {
 		if t, ok := n.(*ast.StructType); ok {
@@ -87,11 +126,12 @@ func ConvolutedFormatReflectType(s reflect.Type) string {
 		return s.String()
 	}
 
-	// Format the struct
+	// Format the struct AST
 	return formatStructAST(structType, 0)
 }
 
-// formatStructAST formats a struct AST node
+// formatStructAST formats a struct AST node with proper indentation
+// and field ordering.
 func formatStructAST(structType *ast.StructType, depth int) string {
 	if structType == nil || structType.Fields == nil {
 		return ""
@@ -110,6 +150,8 @@ func formatStructAST(structType *ast.StructType, depth int) string {
 	// Build the formatted struct
 	var result strings.Builder
 	result.WriteString("struct {\n")
+
+	// Add each field with proper indentation
 	for i, field := range fields {
 		result.WriteString(strings.Repeat("\t", depth+1))
 		result.WriteString(field)
@@ -117,6 +159,8 @@ func formatStructAST(structType *ast.StructType, depth int) string {
 			result.WriteString("\n")
 		}
 	}
+
+	// Close the struct
 	if len(fields) > 0 {
 		result.WriteString("\n")
 	}
@@ -125,12 +169,13 @@ func formatStructAST(structType *ast.StructType, depth int) string {
 	return result.String()
 }
 
-// formatField formats a single struct field
+// formatField formats a single struct field from AST
 func formatField(field *ast.Field, depth int) string {
 	if field == nil {
 		return ""
 	}
 
+	// Extract field name
 	var name string
 	if len(field.Names) > 0 {
 		name = field.Names[0].Name
@@ -166,16 +211,29 @@ func formatType(expr ast.Expr, depth int) string {
 
 	switch t := expr.(type) {
 	case *ast.Ident:
+		// Simple identifier (like 'string', 'int', etc.)
 		return t.Name
+
 	case *ast.StarExpr:
+		// Pointer type (like '*string')
 		return "*" + formatType(t.X, depth)
+
 	case *ast.ArrayType:
+		// Array or slice type (like '[]string')
 		return "[]" + formatType(t.Elt, depth)
+
 	case *ast.MapType:
-		return fmt.Sprintf("map[%s]%s", formatType(t.Key, depth), formatType(t.Value, depth))
+		// Map type (like 'map[string]int')
+		return fmt.Sprintf("map[%s]%s",
+			formatType(t.Key, depth),
+			formatType(t.Value, depth))
+
 	case *ast.StructType:
+		// Nested struct
 		return formatStructAST(t, depth)
+
 	default:
+		// Other types (interfaces, channels, etc.)
 		return fmt.Sprintf("%#v", expr)
 	}
 }

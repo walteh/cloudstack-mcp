@@ -1,10 +1,10 @@
 package mcp_test
 
 import (
+	"reflect"
 	"testing"
 
 	csgo "github.com/apache/cloudstack-go/v2/cloudstack"
-	genericlist "github.com/bahlo/generic-list-go"
 	"github.com/invopop/jsonschema"
 	"github.com/stretchr/testify/require"
 	"github.com/walteh/cloudstack-mcp/pkg/diff"
@@ -54,13 +54,15 @@ func Test_CloudStackApiToJsonSchema(t *testing.T) {
 			got, err := mcp.CloudStackApiToJsonSchema(t.Context(), tt.args.api)
 			require.NoError(t, err)
 
-			diff.RequireKnownValueEqual(t, tt.want, got,
-				diff.WithUnexportedType[jsonschema.Schema](),
-				diff.WithUnexportedType[orderedmap.OrderedMap[string, *jsonschema.Schema]](),
-				diff.WithUnexportedType[orderedmap.Pair[string, *jsonschema.Schema]](),
-				diff.WithUnexportedType[genericlist.Element[*orderedmap.Pair[string, *jsonschema.Schema]]](),
-				diff.WithUnexportedType[genericlist.List[*orderedmap.Pair[string, *jsonschema.Schema]]](),
-			)
+			// diff.RequireKnownValueEqual(t, tt.want, got,
+			// 	diff.WithUnexportedType[jsonschema.Schema](),
+			// 	diff.WithUnexportedType[orderedmap.OrderedMap[string, *jsonschema.Schema]](),
+			// 	diff.WithUnexportedType[orderedmap.Pair[string, *jsonschema.Schema]](),
+			// 	diff.WithUnexportedType[genericlist.Element[*orderedmap.Pair[string, *jsonschema.Schema]]](),
+			// 	diff.WithUnexportedType[genericlist.List[*orderedmap.Pair[string, *jsonschema.Schema]]](),
+			// )
+
+			diff.RequireUnknownValueEqualAsJSON(t, reflect.ValueOf(tt.want), reflect.ValueOf(got))
 		})
 	}
 }

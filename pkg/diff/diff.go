@@ -1,3 +1,13 @@
+// Package diff provides utilities for generating, comparing, and visualizing differences
+// between expected and actual values in various formats.
+//
+// The package offers multiple ways to compare values:
+// - Generic type comparisons using go-cmp
+// - String-based diffing with unified diff format
+// - Character-level diffing for detailed text comparison
+//
+// It's designed to be used in testing scenarios but can be used in any context
+// where difference visualization is needed.
 package diff
 
 import (
@@ -7,10 +17,32 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/k0kubun/pp/v3"
 
-	"github.com/pmezard/go-difflib/difflib"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
+// DiffResult represents the output of a diff operation
+type DiffResult struct {
+	// Content is the formatted diff content
+	Content string
+	// IsEqual is true if there is no difference
+	IsEqual bool
+}
+
+// Differ defines the interface for types that can generate diffs
+type Differ interface {
+	// Diff generates a diff between two values
+	Diff(want, got interface{}) DiffResult
+}
+
+// DiffFormatter defines the interface for formatters that can render diffs
+type DiffFormatter interface {
+	// Format formats a diff string with visual enhancements
+	Format(diff string) string
+}
+
+// TypedDiffExportedOnly performs a diff operation between two values of the same type,
+// considering only exported fields.
+// This is useful when comparing structs where unexported fields should be ignored.
 func TypedDiffExportedOnly[T any](want T, got T) string {
 	printer := pp.New()
 	printer.SetExportedOnly(true)
@@ -19,27 +51,14 @@ func TypedDiffExportedOnly[T any](want T, got T) string {
 	return diffTyped(printer, want, got)
 }
 
+// TypedDiff performs a diff operation between two values of the same type,
+// considering all fields (exported and unexported).
+// It supports various types including reflect.Type, reflect.Value, string, and others.
 func TypedDiff[T any](want T, got T, opts ...OptTestingOptsSetter) string {
 	printer := pp.New()
 	printer.SetExportedOnly(false)
 	printer.SetColoringEnabled(false)
-
 	return diffTyped(printer, want, got, opts...)
-}
-
-func diffd(want string, got string) string {
-	diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-		A:        difflib.SplitLines(want),
-		B:        difflib.SplitLines(got),
-		FromFile: "Expected",
-		FromDate: "",
-		ToFile:   "Actual",
-		ToDate:   "",
-		Context:  5,
-	})
-
-	return diff
-
 }
 
 // formatStartingWhitespace formats leading whitespace characters to be visible while maintaining proper spacing
@@ -67,6 +86,8 @@ func formatStartingWhitespace(s string, colord *color.Color) string {
 	return out
 }
 
+// diffTyped is the core implementation of TypedDiff and TypedDiffExportedOnly.
+// It handles type-specific diff generation based on the kind of value.
 func diffTyped[T any](printer *pp.PrettyPrinter, want T, got T, opts ...OptTestingOptsSetter) string {
 	// Enable colors
 
@@ -74,33 +95,38 @@ func diffTyped[T any](printer *pp.PrettyPrinter, want T, got T, opts ...OptTesti
 
 	switch any(want).(type) {
 	case reflect.Type:
-		want := ConvolutedFormatReflectType(any(want).(reflect.Type))
-		got := ConvolutedFormatReflectType(any(got).(reflect.Type))
-		return diffTyped(printer, want, got, opts...)
+		// Handle reflect.Type values by converting them to string representation
+		wantType := ConvolutedFormatReflectType(any(want).(reflect.Type))
+		gotType := ConvolutedFormatReflectType(any(got).(reflect.Type))
+		return diffTyped(printer, wantType, gotType, opts...)
 	case reflect.Value:
+		// Handle reflect.Value by formatting their content
 		w := any(want).(reflect.Value)
 		g := any(got).(reflect.Value)
-		want := ConvolutedFormatReflectValue(w)
-		got := ConvolutedFormatReflectValue(g)
-		return diffTyped(printer, want, got, opts...)
-	case string:
-		unified := diffd(any(want).(string), any(got).(string))
-		ud, err := ParseUnifiedDiff(unified)
-		if err != nil {
-			opts := NewTestingOpts(opts...)
+		wantValue := ConvolutedFormatReflectValue(w)
+		gotValue := ConvolutedFormatReflectValue(g)
+		return diffTyped(printer, wantValue, gotValue, opts...)
+	// case string:
 
-			return EnrichCmpDiff(cmp.Diff(got, want, opts.cmpOpts...))
-		}
-
-		// return EnrichUnifiedDiff(unified)
-		return ud.PrettyPrint()
+	// 	// Handle string values with unified diff
+	// 	unified := GenerateUnifiedDiff(any(want).(string), any(got).(string))
+	// 	ud, err := ParseUnifiedDiff(unified)
+	// 	if err != nil {
+	// 		// Fall back to cmp.Diff for string comparison if unified diff fails
+	// 		testOpts := NewTestingOpts(opts...)
+	// 		return EnrichCmpDiff(cmp.Diff(got, want, testOpts.cmpOpts...))
+	// 	}
+	// 	return ud.PrettyPrint()
 	default:
-		opts := NewTestingOpts(opts...)
-		cmpd := cmp.Diff(got, want, opts.cmpOpts...)
-		return EnrichCmpDiff(cmpd)
+		// For all other types, use cmp.Diff
+		testOpts := NewTestingOpts(opts...)
+		cmpDiff := cmp.Diff(got, want, testOpts.cmpOpts...)
+		return EnrichCmpDiff(cmpDiff)
 	}
 }
 
+// SingleLineStringDiff performs character-level diffing between two strings.
+// It highlights specific characters that differ, which is useful for single-line string comparisons.
 func SingleLineStringDiff(want string, got string) string {
 	dmp := diffmatchpatch.New()
 	diffs := dmp.DiffMain(want, got, false)

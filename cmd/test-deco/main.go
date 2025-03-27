@@ -337,7 +337,7 @@ func processDiff(lines []string) {
 
 	if diffStarted && unifiedDiff != "" {
 		// Use the diff package to format the unified diff
-		fmt.Print(diff.EnrichUnifiedDiff(unifiedDiff))
+		fmt.Print(diff.AltEnrichUnifiedDiff(unifiedDiff))
 	} else if want != "" && got != "" {
 		// If we have struct content but no diff, generate one
 		formattedDiff := cmp.Diff(want, got)

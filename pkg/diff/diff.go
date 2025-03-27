@@ -127,12 +127,30 @@ func diffTyped[T any](printer *pp.PrettyPrinter, want T, got T) string {
 		return diffTyped[any](printer, want, got)
 	case string:
 		unified := diffd(any(want).(string), any(got).(string))
+		ud, err := ParseUnifiedDiff(unified)
+		if err != nil {
+			return EnrichCmpDiff(cmp.Diff(got, want))
+		}
 
-		return EnrichUnifiedDiff(unified)
+		// return EnrichUnifiedDiff(unified)
+		return ud.PrettyPrint()
 	default:
 		cmpd := cmp.Diff(got, want)
 		return EnrichCmpDiff(cmpd)
 	}
+}
+
+func AltEnrichUnifiedDiff(diff string) string {
+	if diff == "" {
+		return ""
+	}
+
+	ud, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		panic(err)
+	}
+
+	return ud.PrettyPrint()
 }
 
 func EnrichUnifiedDiff(diff string) string {

@@ -25,7 +25,7 @@ func Test_CloudStackApiToJsonSchema(t *testing.T) {
 			args: args{
 				api: &csgo.Api{
 					Name:        "test",
-					Description: "test",
+					Description: "the test api",
 					Params: []csgo.ApiParams{
 						{
 							Name:        "test",
@@ -37,11 +37,11 @@ func Test_CloudStackApiToJsonSchema(t *testing.T) {
 			},
 			want: &jsonschema.Schema{
 				Title:       "testInputParams",
-				Description: "test",
+				Description: "the test api input params",
 				Required:    []string{},
 				Type:        "object",
 				Properties: orderedmap.New[string, *jsonschema.Schema](orderedmap.WithInitialData(orderedmap.Pair[string, *jsonschema.Schema]{
-					Key:   "tests",
+					Key:   "test",
 					Value: &jsonschema.Schema{Type: "string"},
 				})),
 			},

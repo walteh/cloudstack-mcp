@@ -54,6 +54,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/smartystreets/goconvey v1.8.1 // indirect
+	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect

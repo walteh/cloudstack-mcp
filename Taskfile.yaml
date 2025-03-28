@@ -115,3 +115,26 @@ tasks:
         cmds:
             - rm -rf bin
             - rm -rf .tmp
+
+    check-qemu:
+        desc: Check and install QEMU if needed on macOS
+        cmds:
+            - bash ./scripts/install-qemu-macos.sh
+
+    build:setup-kvm:
+        desc: Build the setup-kvm command
+        cmds:
+            - ./go build -o bin/setup-kvm ./cmd/setup-kvm
+
+    run:setup-kvm:
+        desc: Run the setup-kvm command
+        deps: [check-qemu]
+        cmds:
+            - ./go run ./cmd/setup-kvm {{.CLI_ARGS}}
+
+    setup-kvm:
+        desc: Complete CloudStack KVM setup
+        deps: [check-qemu]
+        cmds:
+            - task: build:setup-kvm
+            - bin/setup-kvm {{.CLI_ARGS}}

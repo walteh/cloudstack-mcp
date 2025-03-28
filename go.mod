@@ -33,6 +33,7 @@ require (
 	github.com/cloudflare/circl v1.6.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/digitalocean/go-qemu v0.0.0-20250212194115-ee9b0668d242 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/dominikbraun/graph v0.23.0 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.0 // indirect

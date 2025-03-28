@@ -10,7 +10,7 @@ import (
 )
 
 // GenerateMetaData generates the cloud-init meta-data for this VM
-func (vm *VM) MetaData() (string, error) {
+func (vm *VM) BuildMetaData() (string, error) {
 	return fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n",
 		vm.Config.Name,
 		vm.Config.Network.Hostname), nil
@@ -36,7 +36,7 @@ func (vm *VM) UserData() (string, error) {
 		return "", errors.Errorf("getting user home directory: %w", err)
 	}
 
-	sshPubKeyPath := filepath.Join(homeDir, ".ssh", "id_rsa.pub")
+	sshPubKeyPath := filepath.Join(homeDir, ".ssh", "walteh.git.pub")
 	sshPubKey, err := os.ReadFile(sshPubKeyPath)
 	if err != nil {
 		return "", errors.Errorf("reading SSH public key: %w", err)

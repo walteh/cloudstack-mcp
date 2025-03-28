@@ -40,22 +40,6 @@ type LocalManager struct {
 	QemuImgPath string
 }
 
-func baseDir() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(fmt.Sprintf("getting user home directory: %s", err))
-	}
-	return filepath.Join(homeDir, ".cloudstack-mcp")
-}
-
-func vmsDir() string {
-	return filepath.Join(baseDir(), "vms")
-}
-
-func imagesDir() string {
-	return filepath.Join(baseDir(), "images")
-}
-
 // NewLocalManager creates a new LocalManager
 func NewLocalManager() (*LocalManager, error) {
 
@@ -103,6 +87,7 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 			Host:       "",       // Will be set when VM starts
 			Port:       22,
 		},
+		MetaData: map[string]string{},
 	}
 
 	if err := os.MkdirAll(vm.Dir(), 0755); err != nil {
@@ -147,9 +132,9 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 	// 		Port:       22,
 	// 	},
 	// }
-	vm.diskOutput = string(output)
+	vm.MetaData["disk_output"] = string(output)
 
-	metaData, err := vm.MetaData()
+	metaData, err := vm.BuildMetaData()
 	if err != nil {
 		return nil, errors.Errorf("generating meta-data: %w", err)
 	}
@@ -197,6 +182,12 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 	}
 
 	logger.Info().Str("name", config.Name).Msg("VM created successfully")
+
+	vm.Status = "created"
+
+	if err := vm.SaveState(); err != nil {
+		return nil, errors.Errorf("saving VM state: %w", err)
+	}
 
 	return vm, nil
 }
@@ -269,12 +260,28 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 	// Launch VM
 	cmd := exec.CommandContext(ctx, m.QemuPath, qemuArgs...)
 
+	logfile, err := os.Create(vm.QEMULogPath())
+	if err != nil {
+		return errors.Errorf("creating qemu log file: %w", err)
+	}
+	defer logfile.Close()
+	cmd.Stdout = logfile
+	cmd.Stderr = logfile
+
 	// TODO: Handle VM output and PID
 	if err := cmd.Start(); err != nil {
 		return errors.Errorf("starting VM: %w", err)
 	}
 
-	vm.internalState = "running"
+	vm.Status = "running"
+	if cmd.Process == nil {
+		return errors.Errorf("failed to get VM PID")
+	}
+	vm.PID = cmd.Process.Pid
+
+	if err := vm.SaveState(); err != nil {
+		return errors.Errorf("saving VM state: %w", err)
+	}
 
 	// TODO: Wait for VM to boot and collect SSH info
 
@@ -282,32 +289,32 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 }
 
 // StopVM stops a running VM
-func (m *LocalManager) StopVM(ctx context.Context, vm *VM) error {
-	logger := zerolog.Ctx(ctx)
-	logger.Info().Str("name", vm.Config.Name).Msg("Stopping VM")
+// func (m *LocalManager) StopVM(ctx context.Context, vm *VM) error {
+// 	logger := zerolog.Ctx(ctx)
+// 	logger.Info().Str("name", vm.Config.Name).Msg("Stopping VM")
 
-	if vm.internalState != "running" {
-		return errors.Errorf("VM is not running")
-	}
+// 	if vm.internalState != "running" {
+// 		return errors.Errorf("VM is not running")
+// 	}
 
-	vm.internalState = "stopping"
+// 	vm.internalState = "stopping"
 
-	if err := vm.Stop(); err != nil {
-		return errors.Errorf("stopping VM: %w", err)
-	}
+// 	if err := vm.Stop(); err != nil {
+// 		return errors.Errorf("stopping VM: %w", err)
+// 	}
 
-	vm.internalState = "stopped"
+// 	vm.internalState = "stopped"
 
-	return nil
-}
+// 	return nil
+// }
 
 // DeleteVM deletes a VM and its associated resources
 func (m *LocalManager) DeleteVM(ctx context.Context, vm *VM) error {
 	logger := zerolog.Ctx(ctx)
 	logger.Info().Str("name", vm.Config.Name).Msg("Deleting VM")
 
-	if vm.internalState == "running" {
-		if err := m.StopVM(ctx, vm); err != nil {
+	if vm.Status == "running" {
+		if err := vm.Stop(); err != nil {
 			return errors.Errorf("stopping VM: %w", err)
 		}
 	}

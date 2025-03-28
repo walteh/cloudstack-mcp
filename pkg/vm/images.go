@@ -61,11 +61,13 @@ func DownloadImage(ctx context.Context, img Img, ignoreCache bool) error {
 	if err != nil {
 		return errors.Errorf("getting user downloads directory: %w", err)
 	}
-	imgPath = filepath.Join(userDownloadsDir, img.Name)
+	downloadPath := filepath.Join(userDownloadsDir, img.Name)
 
-	if _, err := os.Stat(imgPath); err == nil && !ignoreCache {
+	logger.Info().Str("name", img.Name).Str("path", imgPath).Msg("Checking image")
+
+	if _, err := os.Stat(downloadPath); err == nil && !ignoreCache {
 		logger.Info().Str("name", img.Name).Msg("Image already exists in user downloads directory")
-		if err := os.Rename(imgPath, imgPath); err != nil {
+		if err := os.Rename(downloadPath, imgPath); err != nil {
 			return errors.Errorf("moving image to cache directory: %w", err)
 		}
 		return nil
@@ -78,8 +80,13 @@ func DownloadImage(ctx context.Context, img Img, ignoreCache bool) error {
 		return errors.Errorf("creating images directory: %w", err)
 	}
 
+	req, err := http.NewRequestWithContext(ctx, "GET", img.Url, nil)
+	if err != nil {
+		return errors.Errorf("creating request: %w", err)
+	}
+
 	// Download image
-	resp, err := http.Get(img.Url)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return errors.Errorf("downloading image: %w", err)
 	}
@@ -90,7 +97,7 @@ func DownloadImage(ctx context.Context, img Img, ignoreCache bool) error {
 	}
 
 	// Create temporary file
-	tmpPath := fmt.Sprintf("%s.download", imgPath)
+	tmpPath := fmt.Sprintf("%s.download", downloadPath)
 	f, err := os.Create(tmpPath)
 	if err != nil {
 		return errors.Errorf("creating temporary file: %w", err)
@@ -157,4 +164,30 @@ func DeleteImage(ctx context.Context, imagesDir string, imgName string) error {
 
 	logger.Info().Str("name", imgName).Msg("Image deleted successfully")
 	return nil
+}
+
+func DownloadImageFromURL(ctx context.Context, img Img) error {
+	return DownloadImage(ctx, img, false)
+}
+
+func DownloadUnknownImage(ctx context.Context, imgName string, ignoreCache bool) error {
+	var img Img
+	for _, i := range DefaultImages {
+		if i.Name == imgName {
+			img = i
+			break
+		}
+		if i.Url == imgName {
+			img = i
+			break
+		}
+	}
+
+	zerolog.Ctx(ctx).Info().Str("name", imgName).Str("url", img.Url).Msg("Downloading image")
+
+	if img.Name == "" {
+		return errors.Errorf("image not found: %s", img)
+	}
+
+	return DownloadImage(ctx, img, ignoreCache)
 }

@@ -30,8 +30,11 @@ func main() {
 	}
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
+	ctx := context.Background()
+	ctx = log.With().Str("command", "vmctl").Logger().WithContext(ctx)
+
 	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Set up signal handling for graceful shutdown
@@ -116,12 +119,8 @@ func listImages(ctx context.Context, manager *vm.LocalManager) error {
 }
 
 func downloadImage(ctx context.Context, manager *vm.LocalManager, name, url string) error {
-	img := vm.Img{
-		Name: name,
-		Url:  url,
-	}
 
-	if err := vm.DownloadImage(ctx, img, false); err != nil {
+	if err := vm.DownloadUnknownImage(ctx, url, false); err != nil {
 		return errors.Errorf("downloading image: %w", err)
 	}
 
@@ -130,6 +129,15 @@ func downloadImage(ctx context.Context, manager *vm.LocalManager, name, url stri
 }
 
 func createVM(ctx context.Context, manager *vm.LocalManager, name, imgName string) error {
+
+	logger := zerolog.Ctx(ctx)
+
+	logger.Info().Str("name", imgName).Msg("Downloading image")
+	// try to get the image
+	if err := vm.DownloadUnknownImage(ctx, imgName, false); err != nil {
+		return errors.Errorf("downloading image: %w", err)
+	}
+
 	// Create default VM configuration
 	config := vm.VMConfig{
 		Name:     name,
@@ -184,7 +192,7 @@ func stopVM(ctx context.Context, manager *vm.LocalManager, name string) error {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	if err := manager.StopVM(ctx, vm); err != nil {
+	if err := vm.Stop(); err != nil {
 		return errors.Errorf("stopping VM: %w", err)
 	}
 
@@ -214,11 +222,7 @@ func listVMs(ctx context.Context, manager *vm.LocalManager) error {
 
 	fmt.Println("Available VMs:")
 	for _, vm := range vms {
-		status, err := vm.Status()
-		if err != nil {
-			return errors.Errorf("getting VM status: %w", err)
-		}
-		fmt.Printf("  - %s (State: %s)\n", vm.Config.Name, status)
+		fmt.Printf("  - %s (State: %s)\n", vm.Config.Name, vm.Status)
 	}
 
 	return nil

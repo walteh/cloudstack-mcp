@@ -1,4 +1,4 @@
-package hypervisor
+package kvm
 
 // VMConfig represents configuration for a VM managed by libvirt
 type VMConfig struct {

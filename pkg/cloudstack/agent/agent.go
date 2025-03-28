@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/walteh/cloudstack-mcp/pkg/qemu"
+	"github.com/walteh/cloudstack-mcp/pkg/host"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -132,7 +132,7 @@ func (a *Agent) MonitorVMs(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
-			vms, err := a.GetQEMUManager().ListRunningVMs()
+			vms, err := a.GetHost().ListRunningVMs()
 			if err != nil {
 				a.logger.Error().Err(err).Msg("Failed to list VMs")
 				continue
@@ -144,7 +144,7 @@ func (a *Agent) MonitorVMs(ctx context.Context) error {
 			}
 
 			for _, vm := range vms {
-				status, err := a.GetQEMUManager().GetVMStatus(ctx, vm)
+				status, err := a.GetHost().GetVMStatus(ctx, vm)
 				if err != nil {
 					a.logger.Error().Err(err).Str("vm", vm).Msg("Failed to get VM status")
 					continue
@@ -152,7 +152,7 @@ func (a *Agent) MonitorVMs(ctx context.Context) error {
 
 				a.logger.Debug().
 					Str("vm", vm).
-					Str("status", status).
+					Str("status", string(status)).
 					Msg("VM Status")
 			}
 		}
@@ -170,6 +170,6 @@ func (a *Agent) GetHostInfo() map[string]interface{} {
 	}
 }
 
-func (a *Agent) GetQEMUManager() *qemu.Manager {
-	return a.setup.GetQEMUManager()
+func (a *Agent) GetHost() host.Host {
+	return a.setup.GetHost()
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/walteh/cloudstack-mcp/pkg/cloudstack/agent"
+	"github.com/walteh/cloudstack-mcp/pkg/host/qemu"
 )
 
 func main() {
@@ -38,7 +39,9 @@ func main() {
 
 	logger.Info().Str("workDir", *workDir).Msg("Working directory initialized")
 
-	setup := agent.NewSetup(*workDir, logger)
+	host := qemu.NewManager(*workDir, logger)
+
+	setup := agent.NewSetup(*workDir, logger, host)
 	// Create CloudStack agent
 	cloudstackAgent := agent.NewAgent(*workDir, logger, setup)
 

@@ -12,68 +12,13 @@ import (
 
 	"github.com/digitalocean/go-qemu/qmp"
 	"github.com/rs/zerolog"
+	"github.com/walteh/cloudstack-mcp/pkg/host"
 	"gitlab.com/tozd/go/errors"
 )
 
-// VMInfo contains information about a VM
-type VMInfo struct {
-	CPUs     int
-	MemoryMB int
-	VNCPort  string
-	QMPPort  string
-}
-
 // Status represents the VM status
-type Status string
 
-const (
-	StatusUnknown  Status = "unknown"
-	StatusRunning  Status = "running"
-	StatusShutdown Status = "shutdown"
-	StatusPaused   Status = "paused"
-	StatusSaved    Status = "saved"
-)
-
-// VMConfig represents configuration for a QEMU VM
-type VMConfig struct {
-	Name      string
-	CPU       int
-	MemoryMB  int
-	DiskPath  string
-	NetDevice string
-	NetBridge string
-	CDROM     string
-	VGA       string
-	UseBIOS   bool
-	UseTPM    bool
-	KVM       bool
-	Headless  bool
-	Machine   string // Machine type (especially needed for ARM64)
-}
-
-// NewVMConfig creates a new VM configuration with defaults
-func NewVMConfig(name string, diskPath string) VMConfig {
-	// Default machine type based on architecture
-	machine := "q35"
-	if runtime.GOARCH == "arm64" {
-		machine = "virt"
-	}
-
-	return VMConfig{
-		Name:      name,
-		CPU:       4,
-		MemoryMB:  4096,
-		DiskPath:  diskPath,
-		NetDevice: "virtio-net-pci",
-		NetBridge: "virbr0",
-		VGA:       "std",
-		KVM:       false, // KVM is not available on macOS
-		UseBIOS:   false,
-		UseTPM:    false,
-		Headless:  false,
-		Machine:   machine,
-	}
-}
+var _ host.Host = &Manager{}
 
 // Manager handles QEMU VM operations
 type Manager struct {
@@ -92,7 +37,7 @@ func NewManager(workDir string, logger zerolog.Logger) *Manager {
 }
 
 // CheckQEMUInstalled verifies if QEMU is installed
-func (m *Manager) CheckQEMUInstalled(ctx context.Context) error {
+func (m *Manager) InstallDependencies(ctx context.Context) error {
 	m.logger.Info().Msg("Checking if QEMU is installed")
 
 	var cmd *exec.Cmd
@@ -112,7 +57,7 @@ func (m *Manager) CheckQEMUInstalled(ctx context.Context) error {
 }
 
 // CreateVMWithConfig creates a new VM with the given configuration
-func (m *Manager) CreateVMWithConfig(ctx context.Context, config VMConfig) error {
+func (m *Manager) CreateVMWithConfig(ctx context.Context, config host.VMConfig) error {
 	m.logger.Info().
 		Str("name", config.Name).
 		Int("cpu", config.CPU).
@@ -216,17 +161,17 @@ func (m *Manager) ListRunningVMs() ([]string, error) {
 }
 
 // GetVMStatus returns the status of a VM
-func (m *Manager) GetVMStatus(ctx context.Context, name string) (string, error) {
+func (m *Manager) GetVMStatus(ctx context.Context, name string) (host.Status, error) {
 	if cmd, exists := m.vms[name]; exists && cmd.Process != nil {
 		if err := cmd.Process.Signal(syscall.SIGCONT); err == nil {
-			return string(StatusRunning), nil
+			return host.StatusRunning, nil
 		}
 	}
-	return string(StatusUnknown), nil
+	return host.StatusUnknown, nil
 }
 
 // GetVMInfo returns information about a VM
-func (m *Manager) GetVMInfo(ctx context.Context, name string) (*VMInfo, error) {
+func (m *Manager) GetVMInfo(ctx context.Context, name string) (*host.VMInfo, error) {
 	if cmd, exists := m.vms[name]; exists && cmd.Process != nil {
 		if err := cmd.Process.Signal(syscall.SIGCONT); err == nil {
 			// Create QMP monitor for detailed info
@@ -243,7 +188,7 @@ func (m *Manager) GetVMInfo(ctx context.Context, name string) (*VMInfo, error) {
 
 			// For now, return default values since we need to parse QMP output
 			// to get accurate CPU and memory information
-			info := &VMInfo{
+			info := &host.VMInfo{
 				CPUs:     4,    // Default value
 				MemoryMB: 4096, // Default value
 			}

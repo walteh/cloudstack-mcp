@@ -13,7 +13,8 @@ import (
 	"text/template"
 
 	"github.com/rs/zerolog"
-	"github.com/walteh/cloudstack-mcp/pkg/qemu"
+	"github.com/walteh/cloudstack-mcp/pkg/host"
+
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -36,23 +37,21 @@ const (
 type Setup struct {
 	workDir    string
 	logger     zerolog.Logger
-	qemuMgr    *qemu.Manager
+	host       host.Host
 	configPath string
 }
 
 // NewSetup creates a new CloudStack setup instance
-func NewSetup(workDir string, logger zerolog.Logger) *Setup {
+func NewSetup(workDir string, logger zerolog.Logger, hypervisor host.Host) *Setup {
 	configPath := filepath.Join(workDir, "config")
 	if err := os.MkdirAll(configPath, 0755); err != nil {
 		logger.Fatal().Err(err).Str("configPath", configPath).Msg("Failed to create config directory")
 	}
 
-	qemuMgr := qemu.NewManager(workDir, logger)
-
 	return &Setup{
 		workDir:    workDir,
 		logger:     logger,
-		qemuMgr:    qemuMgr,
+		host:       hypervisor,
 		configPath: configPath,
 	}
 }
@@ -78,7 +77,7 @@ func (s *Setup) InitializeEnvironment(ctx context.Context) error {
 	s.logger.Info().Msg("Initializing CloudStack environment")
 
 	// Check if QEMU is installed
-	if err := s.qemuMgr.CheckQEMUInstalled(ctx); err != nil {
+	if err := s.host.InstallDependencies(ctx); err != nil {
 		return errors.Errorf("QEMU check failed: %w", err)
 	}
 
@@ -239,13 +238,13 @@ func (s *Setup) CreateManagementServer(ctx context.Context) error {
 
 	// Create disk if it doesn't exist
 	if _, err := os.Stat(diskPath); os.IsNotExist(err) {
-		if err := s.qemuMgr.CreateDisk(ctx, diskPath, DefaultManagementDiskSizeGB); err != nil {
+		if err := s.host.CreateDisk(ctx, diskPath, DefaultManagementDiskSizeGB); err != nil {
 			return errors.Errorf("creating management server disk: %w", err)
 		}
 	}
 
 	// Create VM configuration
-	config := qemu.NewVMConfig(vmName, diskPath)
+	config := host.NewVMConfig(vmName, diskPath)
 	config.CPU = DefaultManagementCPU
 	config.MemoryMB = DefaultManagementMemoryMB
 	config.KVM = true
@@ -254,7 +253,7 @@ func (s *Setup) CreateManagementServer(ctx context.Context) error {
 	config.Headless = false
 
 	// Start the VM
-	if err := s.qemuMgr.CreateVMWithConfig(ctx, config); err != nil {
+	if err := s.host.CreateVMWithConfig(ctx, config); err != nil {
 		return errors.Errorf("creating management server VM: %w", err)
 	}
 
@@ -359,7 +358,7 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 	s.logger.Info().Msg("CloudStack VM Information")
 
 	// List running VMs
-	vms, err := s.qemuMgr.ListRunningVMs()
+	vms, err := s.host.ListRunningVMs()
 	if err != nil {
 		return fmt.Errorf("failed to list running VMs: %w", err)
 	}
@@ -372,14 +371,14 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 	s.logger.Info().Int("count", len(vms)).Msg("Running VMs")
 
 	for _, vm := range vms {
-		status, err := s.qemuMgr.GetVMStatus(ctx, vm)
+		status, err := s.host.GetVMStatus(ctx, vm)
 		if err != nil {
 			s.logger.Warn().Err(err).Str("vm", vm).Msg("Failed to get VM status")
 			continue
 		}
 
 		// Get VM info
-		info, err := s.qemuMgr.GetVMInfo(ctx, vm)
+		info, err := s.host.GetVMInfo(ctx, vm)
 		if err != nil {
 			s.logger.Warn().Err(err).Str("vm", vm).Msg("Failed to get VM info")
 			continue
@@ -387,7 +386,7 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 
 		s.logger.Info().
 			Str("name", vm).
-			Str("status", status).
+			Str("status", string(status)).
 			Int("cpus", info.CPUs).
 			Int("memory_mb", info.MemoryMB).
 			Str("vnc_port", info.VNCPort).
@@ -412,6 +411,6 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 }
 
 // GetQEMUManager returns the QEMU manager instance
-func (s *Setup) GetQEMUManager() *qemu.Manager {
-	return s.qemuMgr
+func (s *Setup) GetHost() host.Host {
+	return s.host
 }

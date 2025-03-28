@@ -244,7 +244,8 @@ func listVMs(ctx context.Context, manager *vm.LocalManager) error {
 
 	fmt.Println("Available VMs:")
 	for _, vm := range vms {
-		fmt.Printf("  - %s (Status: %s)\n", vm.Name, vm.Status)
+		status := vm.GetStatus()
+		fmt.Printf("  - %s (Status: %s)\n", vm.Name, status)
 	}
 
 	return nil

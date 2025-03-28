@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -281,10 +282,14 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 		nic = "tap"
 	default:
 		// Default to user mode networking with port forwarding
-		// Use a higher port number to avoid conflicts
-		nic = "user,hostfwd=tcp::10022-:22"
+		// Use a dynamic port to avoid conflicts
+		port, err := findAvailablePort()
+		if err != nil {
+			return errors.Errorf("finding available port: %w", err)
+		}
+		nic = fmt.Sprintf("user,hostfwd=tcp::%d-:22", port)
 		vm.SSHInfo.Host = "localhost"
-		vm.SSHInfo.Port = 10022
+		vm.SSHInfo.Port = port
 	}
 
 	logger.Debug().
@@ -444,9 +449,14 @@ func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
 		nic = "tap"
 	default:
 		// Default to user mode networking with port forwarding
-		nic = "user,hostfwd=tcp::2222-:22"
+		// Use a dynamic port to avoid conflicts
+		port, err := findAvailablePort()
+		if err != nil {
+			return errors.Errorf("finding available port: %w", err)
+		}
+		nic = fmt.Sprintf("user,hostfwd=tcp::%d-:22", port)
 		vm.SSHInfo.Host = "localhost"
-		vm.SSHInfo.Port = 2222
+		vm.SSHInfo.Port = port
 	}
 
 	logger.Debug().
@@ -575,7 +585,6 @@ func (m *LocalManager) GetVM(ctx context.Context, name string) (*VM, error) {
 	stateFile := filepath.Join(vmDir, "vm-state.json")
 	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
 		// No state file, assume VM is stopped
-		vm.Status = "stopped"
 		return vm, nil
 	}
 
@@ -588,19 +597,31 @@ func (m *LocalManager) GetVM(ctx context.Context, name string) (*VM, error) {
 		return nil, errors.Errorf("unmarshaling VM state: %w", err)
 	}
 
-	// Verify PID if VM is marked as running
-	if vm.Status == "running" && vm.PID > 0 {
-		// Check if process is actually running
-		process, err := os.FindProcess(vm.PID)
-		if err != nil || process == nil {
-			vm.Status = "stopped"
-			vm.SaveState() // Update state
-		} else {
-			// On Unix, FindProcess always succeeds, so we need to check if it's running
-			err = process.Signal(os.Signal(nil))
-			if err != nil {
-				vm.Status = "stopped"
-				vm.SaveState() // Update state
+	// Also check for QEMU processes that match this VM's name if we have no PID or
+	// the process with our saved PID is not running
+	if vm.GetStatus() != "running" {
+		cmd := exec.Command("ps", "aux")
+		output, err := cmd.Output()
+		if err == nil {
+			outputStr := string(output)
+			// Look for QEMU processes with this VM's name in the command line
+			if strings.Contains(outputStr, "qemu") && strings.Contains(outputStr, name) {
+				// Parse PID from output
+				lines := strings.Split(outputStr, "\n")
+				for _, line := range lines {
+					if strings.Contains(line, "qemu") && strings.Contains(line, name) {
+						fields := strings.Fields(line)
+						if len(fields) > 1 {
+							pid, err := strconv.Atoi(fields[1])
+							if err == nil && pid > 0 {
+								logger.Info().Int("pid", pid).Msg("Found QEMU process for VM, updating PID")
+								vm.PID = pid
+								vm.SaveState()
+								break
+							}
+						}
+					}
+				}
 			}
 		}
 	}

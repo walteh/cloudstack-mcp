@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"gitlab.com/tozd/go/errors"
 )
@@ -63,6 +66,7 @@ type VM struct {
 type SSHInfo struct {
 	Username   string `json:"username"`
 	PrivateKey string `json:"private_key"`
+	Password   string `json:"password,omitempty"` // Optional password for SSH authentication
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
 }
@@ -300,4 +304,41 @@ func isProcessRunning(pid int) bool {
 	// process if it exists, it just checks if we have permission to send signals to it.
 	err = process.Signal(os.Signal(nil))
 	return err == nil
+}
+
+// GetStatus dynamically checks the status of the VM rather than relying on saved state
+func (vm *VM) GetStatus() string {
+	// First try the PID-based check
+	if vm.PID > 0 && isProcessRunning(vm.PID) {
+		return "running"
+	}
+
+	// If that fails, check for QEMU processes with this VM's name
+	cmd := exec.Command("ps", "aux")
+	output, err := cmd.Output()
+	if err == nil {
+		outputStr := string(output)
+		// Look for QEMU processes with this VM's name in the command line
+		if strings.Contains(outputStr, "qemu") && strings.Contains(outputStr, vm.Name) {
+			// Parse PID from output
+			lines := strings.Split(outputStr, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "qemu") && strings.Contains(line, vm.Name) {
+					fields := strings.Fields(line)
+					if len(fields) > 1 {
+						pid, err := strconv.Atoi(fields[1])
+						if err == nil && pid > 0 {
+							// Update the PID
+							vm.PID = pid
+							vm.SaveState()
+							return "running"
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// No running processes found
+	return "stopped"
 }

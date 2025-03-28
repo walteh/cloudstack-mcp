@@ -240,7 +240,7 @@ func (s *Setup) CreateManagementServer(ctx context.Context) error {
 	// Create disk if it doesn't exist
 	if _, err := os.Stat(diskPath); os.IsNotExist(err) {
 		if err := s.qemuMgr.CreateDisk(ctx, diskPath, DefaultManagementDiskSizeGB); err != nil {
-			return fmt.Errorf("failed to create management server disk: %w", err)
+			return errors.Errorf("creating management server disk: %w", err)
 		}
 	}
 
@@ -255,7 +255,7 @@ func (s *Setup) CreateManagementServer(ctx context.Context) error {
 
 	// Start the VM
 	if err := s.qemuMgr.CreateVMWithConfig(ctx, config); err != nil {
-		return fmt.Errorf("failed to create management server VM: %w", err)
+		return errors.Errorf("creating management server VM: %w", err)
 	}
 
 	s.logger.Info().Msg("CloudStack Management Server VM created")

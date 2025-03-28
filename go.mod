@@ -4,6 +4,7 @@ go 1.24.1
 
 require (
 	github.com/apache/cloudstack-go/v2 v2.17.0
+	github.com/digitalocean/go-qemu v0.0.0-20250212194115-ee9b0668d242
 	github.com/fatih/color v1.18.0
 	github.com/go-task/task/v3 v3.42.1
 	github.com/google/go-cmp v0.7.0
@@ -33,7 +34,7 @@ require (
 	github.com/cloudflare/circl v1.6.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/digitalocean/go-qemu v0.0.0-20250212194115-ee9b0668d242 // indirect
+	github.com/digitalocean/go-libvirt v0.0.0-20220804181439-8648fbde413e // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/dominikbraun/graph v0.23.0 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.0 // indirect

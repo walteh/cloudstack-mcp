@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/walteh/cloudstack-mcp/pkg/qemu"
+	"gitlab.com/tozd/go/errors"
 )
 
 // Agent represents the CloudStack agent
@@ -88,27 +89,27 @@ func (a *Agent) Start(ctx context.Context) error {
 
 	// Initialize environment
 	if err := a.setup.InitializeEnvironment(ctx); err != nil {
-		a.logger.Fatal().Err(err).Msg("Failed to initialize environment")
+		return errors.Errorf("initializing environment: %w", err)
 	}
 
 	// Download templates
 	if err := a.setup.DownloadTemplates(ctx); err != nil {
-		a.logger.Fatal().Err(err).Msg("Failed to download templates")
+		return errors.Errorf("downloading templates: %w", err)
 	}
 
 	// Generate CloudStack agent configuration
 	if err := a.setup.GenerateCloudStackAgentConfig(ctx); err != nil {
-		a.logger.Fatal().Err(err).Msg("Failed to generate agent configuration")
+		return errors.Errorf("generating agent configuration: %w", err)
 	}
 
 	// Setup NFS server
 	if err := a.setup.SetupNFSServer(ctx); err != nil {
-		a.logger.Fatal().Err(err).Msg("Failed to setup NFS server")
+		return errors.Errorf("setting up NFS server: %w", err)
 	}
 
 	// Create management server VM
 	if err := a.setup.CreateManagementServer(ctx); err != nil {
-		a.logger.Fatal().Err(err).Msg("Failed to create management server")
+		return errors.Errorf("creating management server: %w", err)
 	}
 
 	return nil

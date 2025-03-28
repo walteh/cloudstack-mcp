@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -49,6 +50,18 @@ func main() {
 	if err := cloudstackAgent.Start(ctx); err != nil {
 		logger.Fatal().Err(err).Msg("Failed to start CloudStack agent")
 	}
+
+	hypervisorVM, hypervisorDisk, err := cloudstackAgent.NewHypervisorVM(ctx)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create hypervisor VM")
+	}
+
+	fmt.Printf("Hypervisor VM: %s\n", hypervisorVM.Name())
+	fmt.Printf("Hypervisor Disk: %s\n", hypervisorDisk.Path())
+	// fmt.Printf("Hypervisor IP: %s\n", hypervisorVM.IP)
+	// fmt.Printf("Hypervisor Port: %d\n", hypervisorVM.Port)
+	// fmt.Printf("Hypervisor User: %s\n", hypervisorVM.User)
+	// fmt.Printf("Hypervisor Password: %s\n", hypervisorVM.Password)
 
 	if err := cloudstackAgent.MonitorVMs(ctx); err != nil {
 		logger.Fatal().Err(err).Msg("Failed to monitor VMs")

@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -15,11 +15,13 @@ import (
 
 // Agent represents the CloudStack agent
 type Agent struct {
-	workDir   string
-	logger    zerolog.Logger
-	cpuSpeed  int64
-	setup     *Setup
-	vmMonitor sync.Once
+	workDir string
+	logger  zerolog.Logger
+	// cpuSpeed  int64
+	setup       *Setup
+	vmMonitor   sync.Once
+	nameMutex   sync.Mutex
+	nameCounter int
 }
 
 // Template represents a CloudStack template
@@ -43,44 +45,44 @@ func DefaultTemplates() []Template {
 // NewAgent creates a new CloudStack agent
 func NewAgent(workDir string, logger zerolog.Logger, setup *Setup) *Agent {
 	return &Agent{
-		workDir:  workDir,
-		logger:   logger,
-		setup:    setup,
-		cpuSpeed: detectCPUSpeed(),
+		workDir: workDir,
+		logger:  logger,
+		setup:   setup,
+		// cpuSpeed: detectCPUSpeed(),
 	}
 }
 
 // detectCPUSpeed returns the CPU speed in MHz
-func detectCPUSpeed() int64 {
-	// On Apple Silicon, we need to handle this differently
-	if runtime.GOARCH == "arm64" && runtime.GOOS == "darwin" {
-		// Apple Silicon M1/M2 base frequencies are typically 3200MHz
-		// This is a conservative estimate
-		return 3200
-	}
+// func detectCPUSpeed() int64 {
+// 	// On Apple Silicon, we need to handle this differently
+// 	if runtime.GOARCH == "arm64" && runtime.GOOS == "darwin" {
+// 		// Apple Silicon M1/M2 base frequencies are typically 3200MHz
+// 		// This is a conservative estimate
+// 		return 3200
+// 	}
 
-	// For other platforms, try to read from sysfs
-	if runtime.GOOS == "linux" {
-		data, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
-		if err == nil {
-			var freq int64
-			if _, err := fmt.Sscanf(string(data), "%d", &freq); err == nil {
-				// Convert from KHz to MHz
-				return freq / 1000
-			}
-		}
-	}
+// 	// For other platforms, try to read from sysfs
+// 	if runtime.GOOS == "linux" {
+// 		data, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
+// 		if err == nil {
+// 			var freq int64
+// 			if _, err := fmt.Sscanf(string(data), "%d", &freq); err == nil {
+// 				// Convert from KHz to MHz
+// 				return freq / 1000
+// 			}
+// 		}
+// 	}
 
-	// Default fallback - this should be adjusted based on your needs
-	return 2000
-}
+// 	// Default fallback - this should be adjusted based on your needs
+// 	return 2000
+// }
 
 // Start starts the CloudStack agent
 func (a *Agent) Start(ctx context.Context) error {
 	a.logger.Info().Msg("Starting CloudStack agent")
 
 	a.logger.Info().
-		Int64("cpuSpeed", a.cpuSpeed).
+		// Int64("cpuSpeed", a.cpuSpeed).
 		Str("arch", runtime.GOARCH).
 		Str("os", runtime.GOOS).
 		Msg("Agent started successfully")
@@ -107,12 +109,58 @@ func (a *Agent) Start(ctx context.Context) error {
 		return errors.Errorf("setting up NFS server: %w", err)
 	}
 
-	// Create management server VM
-	if err := a.setup.CreateManagementServer(ctx); err != nil {
-		return errors.Errorf("creating management server: %w", err)
-	}
+	// // Create hypervisor VM
+	// vm, _, err := a.setup.NewHypervisorVM(ctx)
+	// if err != nil {
+	// 	return errors.Errorf("creating hypervisor VM: %w", err)
+	// }
+
+	// // Start the hypervisor VM
+	// if err := vm.Start(ctx); err != nil {
+	// 	return errors.Errorf("starting hypervisor VM: %w", err)
+	// }
 
 	return nil
+}
+
+func (a *Agent) NextName() string {
+	a.nameMutex.Lock()
+	defer a.nameMutex.Unlock()
+	a.nameCounter++
+	return fmt.Sprintf("cloudstack-hypervisor-%d", a.nameCounter)
+}
+
+func (a *Agent) NewHypervisorVM(ctx context.Context) (host.VM, host.Disk, error) {
+	a.logger.Info().Msg("Creating CloudStack Hypervisor VM")
+
+	vmName := a.NextName()
+	diskPath := filepath.Join(a.workDir, "disks", "hypervisor.qcow2")
+
+	var disk host.Disk
+	// Create disk if it doesn't exist
+	disk, err := a.GetHost().GetOrCreateDisk(ctx, diskPath, DefaultManagementDiskSizeGB)
+	if err != nil {
+		return nil, nil, errors.Errorf("getting management server disk: %w", err)
+	}
+
+	// Create VM configuration
+	config := host.NewVMConfig(vmName, diskPath)
+	config.CPU = DefaultManagementCPU
+	config.MemoryMB = DefaultManagementMemoryMB
+	config.KVM = true
+
+	// For CloudStack management, we want a graphical console
+	config.Headless = false
+
+	// Start the VM
+	vm, err := a.GetHost().CreateVM(ctx, config)
+	if err != nil {
+		return nil, nil, errors.Errorf("creating management server VM: %w", err)
+	}
+
+	a.logger.Info().Str("vm", vm.Name()).Msg("Hypervisor VM created")
+	return vm, disk, nil
+
 }
 
 // monitorVMs monitors the status of VMs
@@ -144,14 +192,10 @@ func (a *Agent) MonitorVMs(ctx context.Context) error {
 			}
 
 			for _, vm := range vms {
-				status, err := a.GetHost().GetVMStatus(ctx, vm)
-				if err != nil {
-					a.logger.Error().Err(err).Str("vm", vm).Msg("Failed to get VM status")
-					continue
-				}
+				status := vm.Status()
 
 				a.logger.Debug().
-					Str("vm", vm).
+					Str("vm", vm.Name()).
 					Str("status", string(status)).
 					Msg("VM Status")
 			}
@@ -163,10 +207,10 @@ func (a *Agent) MonitorVMs(ctx context.Context) error {
 // GetHostInfo returns information about the host
 func (a *Agent) GetHostInfo() map[string]interface{} {
 	return map[string]interface{}{
-		"cpuSpeed": a.cpuSpeed,
-		"cpuArch":  runtime.GOARCH,
-		"os":       runtime.GOOS,
-		"workDir":  a.workDir,
+		// "cpuSpeed": a.cpuSpeed,
+		"cpuArch": runtime.GOARCH,
+		"os":      runtime.GOOS,
+		"workDir": a.workDir,
 	}
 }
 

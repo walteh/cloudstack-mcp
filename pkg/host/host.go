@@ -6,12 +6,36 @@ import (
 )
 
 type Host interface {
-	CreateVMWithConfig(ctx context.Context, config VMConfig) error
-	GetVMStatus(ctx context.Context, name string) (Status, error)
-	GetVMInfo(ctx context.Context, name string) (*VMInfo, error)
-	CreateDisk(ctx context.Context, path string, sizeGB int) error
-	ListRunningVMs() ([]string, error)
+	CreateVM(ctx context.Context, config VMConfig) (VM, error)
+	// GetVMStatus(ctx context.Context, name string) (Status, error)
+	GetVM(ctx context.Context, name string) (VM, error)
+	GetOrCreateDisk(ctx context.Context, path string, sizeGB int) (Disk, error)
+	ListRunningVMs() ([]VM, error)
 	InstallDependencies(ctx context.Context) error
+}
+
+type VM interface {
+	ConnectionInfo() (*VMConnection, error)
+	Status() Status
+	Name() string
+	Info() (*VMInfo, error)
+}
+
+type Disk interface {
+	Path() string
+	SizeGB() int
+}
+
+type Network interface {
+	Device() string
+	Bridge() string
+}
+
+type VMConnection struct {
+	IP       string
+	User     string
+	Password string
+	Port     int
 }
 
 type Status string

@@ -229,37 +229,7 @@ func (s *Setup) DownloadTemplates(ctx context.Context) error {
 	return nil
 }
 
-// CreateManagementServer creates a VM for CloudStack Management Server
-func (s *Setup) CreateManagementServer(ctx context.Context) error {
-	s.logger.Info().Msg("Creating CloudStack Management Server VM")
-
-	vmName := "cloudstack-management"
-	diskPath := filepath.Join(s.workDir, "disks", "management.qcow2")
-
-	// Create disk if it doesn't exist
-	if _, err := os.Stat(diskPath); os.IsNotExist(err) {
-		if err := s.host.CreateDisk(ctx, diskPath, DefaultManagementDiskSizeGB); err != nil {
-			return errors.Errorf("creating management server disk: %w", err)
-		}
-	}
-
-	// Create VM configuration
-	config := host.NewVMConfig(vmName, diskPath)
-	config.CPU = DefaultManagementCPU
-	config.MemoryMB = DefaultManagementMemoryMB
-	config.KVM = true
-
-	// For CloudStack management, we want a graphical console
-	config.Headless = false
-
-	// Start the VM
-	if err := s.host.CreateVMWithConfig(ctx, config); err != nil {
-		return errors.Errorf("creating management server VM: %w", err)
-	}
-
-	s.logger.Info().Msg("CloudStack Management Server VM created")
-	return nil
-}
+// CreateHypervisor creates a VM for CloudStack Hypervisor
 
 // GenerateCloudStackAgentConfig generates CloudStack agent configuration for KVM
 func (s *Setup) GenerateCloudStackAgentConfig(ctx context.Context) error {
@@ -371,21 +341,17 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 	s.logger.Info().Int("count", len(vms)).Msg("Running VMs")
 
 	for _, vm := range vms {
-		status, err := s.host.GetVMStatus(ctx, vm)
-		if err != nil {
-			s.logger.Warn().Err(err).Str("vm", vm).Msg("Failed to get VM status")
-			continue
-		}
+		status := vm.Status()
 
 		// Get VM info
-		info, err := s.host.GetVMInfo(ctx, vm)
+		info, err := vm.Info()
 		if err != nil {
-			s.logger.Warn().Err(err).Str("vm", vm).Msg("Failed to get VM info")
+			s.logger.Warn().Err(err).Str("vm", vm.Name()).Msg("Failed to get VM info")
 			continue
 		}
 
 		s.logger.Info().
-			Str("name", vm).
+			Str("name", vm.Name()).
 			Str("status", string(status)).
 			Int("cpus", info.CPUs).
 			Int("memory_mb", info.MemoryMB).
@@ -395,10 +361,10 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 
 		// Display connection information
 		s.logger.Info().
-			Str("vm", vm).
+			Str("vm", vm.Name()).
 			Msgf("VNC connection available at: localhost:%s", info.VNCPort)
 		s.logger.Info().
-			Str("vm", vm).
+			Str("vm", vm.Name()).
 			Msgf("QMP connection available at: localhost:%s", info.QMPPort)
 	}
 

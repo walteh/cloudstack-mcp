@@ -122,9 +122,14 @@ tasks:
             - bash ./scripts/install-qemu-macos.sh
 
     build:setup-kvm:
-        desc: Build the setup-kvm command
+        desc: Build the setup-kvm tool
         cmds:
-            - ./go build -o bin/setup-kvm ./cmd/setup-kvm
+            - mkdir -p bin
+            - go build -o bin/setup-kvm ./cmd/setup-kvm
+        sources:
+            - cmd/setup-kvm/main.go
+        generates:
+            - bin/setup-kvm
 
     run:setup-kvm:
         desc: Run the setup-kvm command
@@ -133,8 +138,19 @@ tasks:
             - ./go run ./cmd/setup-kvm {{.CLI_ARGS}}
 
     setup-kvm:
-        desc: Complete CloudStack KVM setup
-        deps: [check-qemu]
+        desc: Set up KVM inside a VM
+        deps: [build:setup-kvm]
         cmds:
             - task: build:setup-kvm
             - bin/setup-kvm {{.CLI_ARGS}}
+
+    generate-hypervisor-grpc:
+        desc: Generate gRPC code for hypervisor
+        cmds:
+            - mkdir -p api/services/hypervisor/v1
+            - protoc -I api/services --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/services/hypervisor/v1/hypervisor.proto
+        sources:
+            - api/services/hypervisor/v1/hypervisor.proto
+        generates:
+            - api/services/hypervisor/v1/hypervisor.pb.go
+            - api/services/hypervisor/v1/hypervisor_grpc.pb.go

@@ -18,6 +18,7 @@ require (
 	github.com/walteh/yaml v0.0.0-20240906221017-df4c3eb1fe66
 	github.com/wk8/go-ordered-map/v2 v2.1.8
 	gitlab.com/tozd/go/errors v0.10.0
+	golang.org/x/crypto v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
 	moul.io/http2curl v1.0.0
 )
@@ -61,7 +62,6 @@ require (
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/mock v0.5.0 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect

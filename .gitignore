@@ -62,3 +62,4 @@ tmp/
 .DS_Store
 Thumbs.db
 kvmrun
+kubernetes-the-harder-way

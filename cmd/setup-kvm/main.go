@@ -4,7 +4,10 @@ import (
 	"context"
 	"flag"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -12,7 +15,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 	logger.Info().Msg("CloudStack KVM Setup Tool")
 
@@ -58,13 +63,31 @@ func main() {
 		logger.Info().Str("step", step.name).Msg("Step completed successfully")
 	}
 
-	// Display information about the VMs
-	logger.Info().Msg("Displaying VM information")
-	if err := setupMgr.DisplayVMInfo(ctx); err != nil {
-		logger.Warn().Err(err).Msg("Failed to display VM information")
-	}
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	logger.Info().Msg("CloudStack KVM setup completed successfully")
-	logger.Info().Str("workDir", *workDir).Msg("All configuration and files are in this directory")
-	logger.Info().Msg("For more information on CloudStack management, visit: https://cloudstack.apache.org/docs/")
+	// Start monitoring loop
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	logger.Info().Msg("Starting monitoring loop")
+	logger.Info().Msg("Press Ctrl+C to exit")
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info().Msg("Context cancelled, shutting down")
+			return
+		case sig := <-sigChan:
+			logger.Info().Str("signal", sig.String()).Msg("Received signal, initiating shutdown")
+			cancel()
+			return
+		case <-ticker.C:
+			// Display VM information
+			if err := setupMgr.DisplayVMInfo(ctx); err != nil {
+				logger.Warn().Err(err).Msg("Failed to display VM information")
+			}
+		}
+	}
 }

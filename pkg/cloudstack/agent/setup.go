@@ -222,33 +222,54 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 	s.logger.Info().Msg("CloudStack VM Information")
 
 	// List running VMs
-	vms := s.qemuMgr.ListRunningVMs()
+	vms, err := s.qemuMgr.ListRunningVMs()
+	if err != nil {
+		return fmt.Errorf("failed to list running VMs: %w", err)
+	}
+
 	if len(vms) == 0 {
-		s.logger.Info().Msg("No running VMs found")
+		s.logger.Info().Msg("No VMs are currently running")
 		return nil
 	}
 
 	s.logger.Info().Int("count", len(vms)).Msg("Running VMs")
 
-	// Display info for each VM
-	for _, vmName := range vms {
-		status, err := s.qemuMgr.GetVMStatus(ctx, vmName)
+	for _, vm := range vms {
+		status, err := s.qemuMgr.GetVMStatus(ctx, vm)
 		if err != nil {
-			s.logger.Warn().Err(err).Str("vm", vmName).Msg("Failed to get VM status")
+			s.logger.Warn().Err(err).Str("vm", vm).Msg("Failed to get VM status")
+			continue
+		}
+
+		// Get VM info
+		info, err := s.qemuMgr.GetVMInfo(ctx, vm)
+		if err != nil {
+			s.logger.Warn().Err(err).Str("vm", vm).Msg("Failed to get VM info")
 			continue
 		}
 
 		s.logger.Info().
-			Str("name", vmName).
+			Str("name", vm).
 			Str("status", status).
-			Msg("VM Status")
+			Int("cpus", info.CPUs).
+			Int("memory_mb", info.MemoryMB).
+			Str("vnc_port", info.VNCPort).
+			Str("qmp_port", info.QMPPort).
+			Msg("VM Details")
+
+		// Display connection information
+		s.logger.Info().
+			Str("vm", vm).
+			Msgf("VNC connection available at: localhost:%s", info.VNCPort)
+		s.logger.Info().
+			Str("vm", vm).
+			Msgf("QMP connection available at: localhost:%s", info.QMPPort)
 	}
 
-	// How to connect to the VM
-	s.logger.Info().Msg("To connect to the VMs:")
-	s.logger.Info().Msgf("1. VNC access: Use a VNC client to connect to the QEMU VNC server")
-	s.logger.Info().Msgf("2. QMP access: Use QEMU Monitor Protocol for administrative tasks")
-	s.logger.Info().Msgf("3. VM location: Check files in %s", s.workDir)
+	// Display working directory information
+	s.logger.Info().
+		Str("workDir", s.workDir).
+		Msg("VM files and configurations are located in this directory")
 
 	return nil
 }

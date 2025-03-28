@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/digitalocean/go-qemu/qemu"
@@ -15,6 +17,40 @@ import (
 	"github.com/rs/zerolog"
 	"gitlab.com/tozd/go/errors"
 )
+
+// VMInfo contains information about a VM
+type VMInfo struct {
+	CPUs     int
+	MemoryMB int
+	VNCPort  string
+	QMPPort  string
+}
+
+// Status represents the VM status
+type Status int
+
+const (
+	StatusUnknown Status = iota
+	StatusRunning
+	StatusShutdown
+	StatusPaused
+	StatusSaved
+)
+
+func (s Status) String() string {
+	switch s {
+	case StatusRunning:
+		return "running"
+	case StatusShutdown:
+		return "shutdown"
+	case StatusPaused:
+		return "paused"
+	case StatusSaved:
+		return "saved"
+	default:
+		return "unknown"
+	}
+}
 
 // VMConfig represents configuration for a QEMU VM
 type VMConfig struct {
@@ -57,16 +93,55 @@ func NewVMConfig(name string, diskPath string) VMConfig {
 	}
 }
 
+// Domain represents a running QEMU VM
+type Domain struct {
+	cmd       *exec.Cmd
+	qmpSocket string
+	pidFile   string
+	domain    *qemu.Domain
+}
+
+// Status returns the current status of the domain
+func (d *Domain) Status() (Status, error) {
+	if d.cmd == nil {
+		return StatusUnknown, fmt.Errorf("domain not initialized")
+	}
+
+	// Check if process is running
+	if d.cmd.Process != nil {
+		if err := d.cmd.Process.Signal(syscall.Signal(0)); err == nil {
+			return StatusRunning, nil
+		}
+	}
+
+	return StatusShutdown, nil
+}
+
+// SystemPowerdown initiates a graceful shutdown of the domain
+func (d *Domain) SystemPowerdown() error {
+	if d.cmd == nil || d.cmd.Process == nil {
+		return fmt.Errorf("domain not running")
+	}
+
+	// Send SIGTERM for graceful shutdown
+	if err := d.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("failed to send powerdown signal: %w", err)
+	}
+
+	return nil
+}
+
 // Manager handles QEMU VM operations
 type Manager struct {
 	workDir  string
 	logger   zerolog.Logger
 	sockets  map[string]string
-	domains  map[string]*qemu.Domain
+	domains  map[string]*Domain
 	monitors map[string]*qmp.SocketMonitor
+	hasKVM   bool
 }
 
-// NewManager creates a new QEMU VM manager
+// NewManager creates a new QEMU manager
 func NewManager(workDir string, logger zerolog.Logger) *Manager {
 	socketDir := filepath.Join(workDir, "sockets")
 	if err := os.MkdirAll(socketDir, 0755); err != nil {
@@ -77,8 +152,9 @@ func NewManager(workDir string, logger zerolog.Logger) *Manager {
 		workDir:  workDir,
 		logger:   logger,
 		sockets:  make(map[string]string),
-		domains:  make(map[string]*qemu.Domain),
+		domains:  make(map[string]*Domain),
 		monitors: make(map[string]*qmp.SocketMonitor),
+		hasKVM:   isKVMAvailable(),
 	}
 }
 
@@ -233,7 +309,12 @@ func (m *Manager) CreateVMWithConfig(ctx context.Context, config VMConfig) error
 		return errors.Errorf("failed to create domain: %w", err)
 	}
 
-	m.domains[config.Name] = domain
+	m.domains[config.Name] = &Domain{
+		cmd:       cmd,
+		qmpSocket: socketPath,
+		pidFile:   pidFile,
+		domain:    domain,
+	}
 	m.monitors[config.Name] = monitor
 
 	m.logger.Info().Str("name", config.Name).Msg("VM created and connected")
@@ -241,20 +322,111 @@ func (m *Manager) CreateVMWithConfig(ctx context.Context, config VMConfig) error
 }
 
 // CreateVM is a simple version using default values (for backward compatibility)
-func (m *Manager) CreateVM(ctx context.Context, name string, cpu int, memoryMB int, diskPath string) error {
-	config := VMConfig{
-		Name:      name,
-		CPU:       cpu,
-		MemoryMB:  memoryMB,
-		DiskPath:  diskPath,
-		NetDevice: "virtio-net-pci",
-		NetBridge: "virbr0",
-		VGA:       "std",
-		KVM:       isKVMAvailable(),
-		Headless:  false,
+func (m *Manager) CreateVM(ctx context.Context, name string, cpu int, memoryMB int, diskPath string, machine string) error {
+	m.logger.Info().
+		Str("name", name).
+		Int("cpu", cpu).
+		Int("memoryMB", memoryMB).
+		Str("diskPath", diskPath).
+		Str("machine", machine).
+		Msg("Creating VM")
+
+	// Check if VM already exists
+	if _, exists := m.domains[name]; exists {
+		return fmt.Errorf("VM %s already exists", name)
 	}
 
-	return m.CreateVMWithConfig(ctx, config)
+	// Create sockets directory if it doesn't exist
+	socketsDir := filepath.Join(m.workDir, "sockets")
+	if err := os.MkdirAll(socketsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create sockets directory: %w", err)
+	}
+
+	// Create VM configuration
+	qmpSocket := filepath.Join(socketsDir, name+".sock")
+	pidFile := filepath.Join(socketsDir, name+".pid")
+
+	// Remove any existing socket or PID files
+	_ = os.Remove(qmpSocket)
+	_ = os.Remove(pidFile)
+
+	// Basic QEMU arguments
+	args := []string{
+		"-name", name,
+		"-machine", machine,
+		"-m", fmt.Sprintf("%d", memoryMB),
+		"-smp", fmt.Sprintf("%d", cpu),
+		"-drive", fmt.Sprintf("file=%s,format=qcow2", diskPath),
+		"-qmp", fmt.Sprintf("unix:%s,server,nowait", qmpSocket),
+		"-pidfile", pidFile,
+	}
+
+	// Check if KVM is available
+	if !m.hasKVM {
+		m.logger.Warn().Msg("KVM requested but not available, running without acceleration")
+	}
+
+	// Add networking
+	if runtime.GOOS == "darwin" {
+		m.logger.Info().Msg("Using user networking for macOS")
+		args = append(args,
+			"-netdev", "user,id=net0",
+			"-device", "virtio-net-pci,netdev=net0",
+		)
+	}
+
+	// Add display for ARM64
+	if runtime.GOARCH == "arm64" {
+		m.logger.Info().Msg("Using virtio-gpu for ARM64")
+		args = append(args,
+			"-device", "virtio-gpu-pci",
+			"-display", "default",
+		)
+	}
+
+	m.logger.Debug().Strs("args", args).Msg("QEMU command")
+
+	// Create VM configuration file
+	configPath := filepath.Join(m.workDir, name+".conf")
+	config := fmt.Sprintf(`name=%s
+cpu=%d
+memory=%d
+disk=%s
+qmp_socket=%s
+pid_file=%s
+`, name, cpu, memoryMB, diskPath, qmpSocket, pidFile)
+
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+		return fmt.Errorf("failed to write VM config: %w", err)
+	}
+
+	// Start QEMU process
+	cmd := exec.CommandContext(ctx, "qemu-system-"+runtime.GOARCH, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start QEMU: %w", err)
+	}
+
+	// Wait for PID file to be created
+	for i := 0; i < 10; i++ {
+		if _, err := os.Stat(pidFile); err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Store domain information
+	m.domains[name] = &Domain{
+		cmd:       cmd,
+		qmpSocket: qmpSocket,
+		pidFile:   pidFile,
+	}
+
+	m.logger.Info().Str("name", name).Msg("VM created and connected")
+
+	return nil
 }
 
 // StopVM stops a running VM
@@ -327,31 +499,75 @@ func IsSocketActive(socketPath string) bool {
 
 // isKVMAvailable checks if KVM is available
 func isKVMAvailable() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
 	_, err := os.Stat("/dev/kvm")
 	return err == nil
 }
 
-// GetVMStatus gets the status of a running VM
+// GetVMStatus returns the status of a VM
 func (m *Manager) GetVMStatus(ctx context.Context, name string) (string, error) {
 	domain, exists := m.domains[name]
 	if !exists {
-		return "", errors.Errorf("VM %s does not exist or is not managed", name)
+		return "", fmt.Errorf("VM %s not found", name)
 	}
 
 	status, err := domain.Status()
 	if err != nil {
-		return "", errors.Errorf("failed to get VM status: %w", err)
+		return "", fmt.Errorf("failed to get VM status: %w", err)
 	}
 
-	// Status already has a String() method
 	return status.String(), nil
 }
 
 // ListRunningVMs returns a list of running VM names
-func (m *Manager) ListRunningVMs() []string {
-	vms := make([]string, 0, len(m.domains))
-	for name := range m.domains {
-		vms = append(vms, name)
+func (m *Manager) ListRunningVMs() ([]string, error) {
+	vms := make([]string, 0)
+	files, err := os.ReadDir(m.workDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read working directory: %w", err)
 	}
-	return vms
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(file.Name(), ".pid") {
+			vmName := strings.TrimSuffix(file.Name(), ".pid")
+			vms = append(vms, vmName)
+		}
+	}
+	return vms, nil
+}
+
+// GetVMInfo returns detailed information about a VM
+func (m *Manager) GetVMInfo(ctx context.Context, vmName string) (*VMInfo, error) {
+	// Read the VM configuration file
+	configPath := filepath.Join(m.workDir, vmName+".conf")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read VM config: %w", err)
+	}
+
+	// Parse the configuration
+	config := make(map[string]string)
+	lines := strings.Split(string(configData), "\n")
+	for _, line := range lines {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		config[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+	}
+
+	// Extract VM information
+	info := &VMInfo{
+		CPUs:     4, // Default values for now
+		MemoryMB: 4096,
+		VNCPort:  config["vnc_port"],
+		QMPPort:  config["qmp_port"],
+	}
+
+	return info, nil
 }

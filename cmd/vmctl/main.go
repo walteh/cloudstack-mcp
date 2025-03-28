@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/rs/zerolog"
@@ -30,11 +31,8 @@ func main() {
 	}
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	ctx := context.Background()
-	ctx = log.With().Str("command", "vmctl").Logger().WithContext(ctx)
-
 	// Create context with cancellation
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Set up signal handling for graceful shutdown
@@ -87,6 +85,11 @@ func run(ctx context.Context) error {
 			return errors.Errorf("usage: start-vm <name>")
 		}
 		return startVM(ctx, manager, subArgs[0])
+	case "foreground-start-vm":
+		if len(subArgs) < 1 {
+			return errors.Errorf("usage: foreground-start-vm <name>")
+		}
+		return startVMForeground(ctx, manager, subArgs[0])
 	case "stop-vm":
 		if len(subArgs) < 1 {
 			return errors.Errorf("usage: stop-vm <name>")
@@ -99,6 +102,16 @@ func run(ctx context.Context) error {
 		return deleteVM(ctx, manager, subArgs[0])
 	case "list-vms":
 		return listVMs(ctx, manager)
+	case "shell":
+		if len(subArgs) < 1 {
+			return errors.Errorf("usage: shell <name>")
+		}
+		return shellVM(ctx, manager, subArgs[0])
+	case "exec":
+		if len(subArgs) < 2 {
+			return errors.Errorf("usage: exec <name> <command>")
+		}
+		return execVM(ctx, manager, subArgs[0], strings.Join(subArgs[1:], " "))
 	default:
 		return errors.Errorf("unknown command: %s", command)
 	}
@@ -119,8 +132,12 @@ func listImages(ctx context.Context, manager *vm.LocalManager) error {
 }
 
 func downloadImage(ctx context.Context, manager *vm.LocalManager, name, url string) error {
+	img := vm.Img{
+		Name: name,
+		Url:  url,
+	}
 
-	if err := vm.DownloadUnknownImage(ctx, url, false); err != nil {
+	if err := vm.DownloadImage(ctx, img, false); err != nil {
 		return errors.Errorf("downloading image: %w", err)
 	}
 
@@ -129,15 +146,6 @@ func downloadImage(ctx context.Context, manager *vm.LocalManager, name, url stri
 }
 
 func createVM(ctx context.Context, manager *vm.LocalManager, name, imgName string) error {
-
-	logger := zerolog.Ctx(ctx)
-
-	logger.Info().Str("name", imgName).Msg("Downloading image")
-	// try to get the image
-	if err := vm.DownloadUnknownImage(ctx, imgName, false); err != nil {
-		return errors.Errorf("downloading image: %w", err)
-	}
-
 	// Create default VM configuration
 	config := vm.VMConfig{
 		Name:     name,
@@ -155,7 +163,7 @@ func createVM(ctx context.Context, manager *vm.LocalManager, name, imgName strin
 		},
 	}
 
-	// Create VM (cloud-init will be generated inside the CreateVM method)
+	// Create VM
 	createdVM, err := manager.CreateVM(ctx, config)
 	if err != nil {
 		return errors.Errorf("creating VM: %w", err)
@@ -179,6 +187,20 @@ func startVM(ctx context.Context, manager *vm.LocalManager, name string) error {
 	}
 
 	if err := manager.StartVM(ctx, vm); err != nil {
+		return errors.Errorf("starting VM: %w", err)
+	}
+
+	fmt.Printf("VM %s started successfully\n", name)
+	return nil
+}
+
+func startVMForeground(ctx context.Context, manager *vm.LocalManager, name string) error {
+	vm, err := manager.GetVM(ctx, name)
+	if err != nil {
+		return errors.Errorf("getting VM: %w", err)
+	}
+
+	if err := manager.StartVMForeground(ctx, vm); err != nil {
 		return errors.Errorf("starting VM: %w", err)
 	}
 
@@ -222,8 +244,39 @@ func listVMs(ctx context.Context, manager *vm.LocalManager) error {
 
 	fmt.Println("Available VMs:")
 	for _, vm := range vms {
-		fmt.Printf("  - %s (State: %s)\n", vm.Config.Name, vm.Status)
+		fmt.Printf("  - %s (Status: %s)\n", vm.Name, vm.Status)
 	}
 
+	return nil
+}
+
+func shellVM(ctx context.Context, manager *vm.LocalManager, name string) error {
+	vm, err := manager.GetVM(ctx, name)
+	if err != nil {
+		return errors.Errorf("getting VM: %w", err)
+	}
+
+	fmt.Printf("Opening shell to VM %s...\n", name)
+	if err := vm.ExecShell(); err != nil {
+		return errors.Errorf("opening shell: %w", err)
+	}
+
+	return nil
+}
+
+func execVM(ctx context.Context, manager *vm.LocalManager, name, command string) error {
+	vm, err := manager.GetVM(ctx, name)
+	if err != nil {
+		return errors.Errorf("getting VM: %w", err)
+	}
+
+	fmt.Printf("Executing command on VM %s: %s\n", name, command)
+	output, err := vm.ExecCommand(command)
+	if err != nil {
+		return errors.Errorf("executing command: %w", err)
+	}
+
+	fmt.Println("Output:")
+	fmt.Println(output)
 	return nil
 }

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -197,20 +198,36 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 	logger := zerolog.Ctx(ctx)
 	logger.Info().Str("name", vm.Config.Name).Msg("Starting VM")
 
+	// Make sure the VM name is set
+	vm.Name = vm.Config.Name
+
 	// Determine architecture and platform-specific settings
 	arch := ""
 	machine := ""
 	nic := ""
 	efi := ""
 
-	switch strings.ToLower(filepath.Base(m.QemuPath)) {
-	case "qemu-system-aarch64":
+	// Detect architecture from image name instead of QEMU binary
+	imageName := vm.Config.BaseImg.Name
+	if strings.Contains(imageName, "arm64") || strings.Contains(imageName, "aarch64") {
 		arch = "aarch64"
-	case "qemu-system-x86_64":
+		m.QemuPath = "qemu-system-aarch64"
+	} else if strings.Contains(imageName, "amd64") || strings.Contains(imageName, "x86_64") {
 		arch = "x86_64"
-	default:
-		return errors.Errorf("unsupported QEMU architecture")
+		m.QemuPath = "qemu-system-x86_64"
+	} else {
+		// Default to host architecture
+		switch strings.ToLower(filepath.Base(m.QemuPath)) {
+		case "qemu-system-aarch64":
+			arch = "aarch64"
+		case "qemu-system-x86_64":
+			arch = "x86_64"
+		default:
+			return errors.Errorf("unsupported QEMU architecture")
+		}
 	}
+
+	logger.Debug().Str("arch", arch).Str("qemu", m.QemuPath).Msg("Detected architecture")
 
 	switch arch {
 	case "aarch64":
@@ -231,6 +248,28 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 		}
 	}
 
+	logger.Debug().
+		Str("machine", machine).
+		Str("efi", efi).
+		Msg("VM hardware configuration")
+
+	// Check if disk and cidata ISO exist
+	diskPath := vm.DiskPath()
+	ciDataPath := vm.CIDataPath()
+
+	if _, err := os.Stat(diskPath); os.IsNotExist(err) {
+		return errors.Errorf("VM disk image does not exist: %s", diskPath)
+	}
+
+	if _, err := os.Stat(ciDataPath); os.IsNotExist(err) {
+		return errors.Errorf("VM cloud-init ISO does not exist: %s", ciDataPath)
+	}
+
+	logger.Debug().
+		Str("disk", diskPath).
+		Str("cidata", ciDataPath).
+		Msg("VM disk configuration")
+
 	// Set up networking based on platform
 	switch vm.Config.Network.Type {
 	case "vmnet-shared":
@@ -241,7 +280,21 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 		// TODO: Implement tap script handling
 		nic = "tap"
 	default:
-		nic = "user,hostfwd=tcp::2222-:22"
+		// Default to user mode networking with port forwarding
+		// Use a higher port number to avoid conflicts
+		nic = "user,hostfwd=tcp::10022-:22"
+		vm.SSHInfo.Host = "localhost"
+		vm.SSHInfo.Port = 10022
+	}
+
+	logger.Debug().
+		Str("nic", nic).
+		Str("mac", vm.Config.Network.MAC).
+		Msg("VM network configuration")
+
+	// Ensure SSH info is set
+	if vm.SSHInfo.Username == "" {
+		vm.SSHInfo.Username = "ubuntu" // Default for Ubuntu cloud images
 	}
 
 	// Prepare QEMU command
@@ -253,37 +306,211 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 		"-m", vm.Config.Memory,
 		"-bios", efi,
 		"-nic", fmt.Sprintf("%s,mac=%s", nic, vm.Config.Network.MAC),
-		"-hda", vm.DiskPath(),
-		"-drive", fmt.Sprintf("file=%s,driver=raw,if=virtio", vm.CIDataPath()),
+		"-hda", diskPath,
+		"-drive", fmt.Sprintf("file=%s,driver=raw,if=virtio", ciDataPath),
 	}
 
-	// Launch VM
-	cmd := exec.CommandContext(ctx, m.QemuPath, qemuArgs...)
+	logger.Debug().
+		Strs("args", qemuArgs).
+		Msg("QEMU command arguments")
 
-	logfile, err := os.Create(vm.QEMULogPath())
+	// Create a log file for QEMU output
+	logFile, err := os.Create(vm.QEMULogPath())
 	if err != nil {
-		return errors.Errorf("creating qemu log file: %w", err)
+		return errors.Errorf("creating QEMU log file: %w", err)
 	}
-	defer logfile.Close()
-	cmd.Stdout = logfile
-	cmd.Stderr = logfile
 
-	// TODO: Handle VM output and PID
+	// Try running QEMU and capturing output
+	cmd := exec.CommandContext(ctx, m.QemuPath, qemuArgs...)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+
+	logger.Info().
+		Str("command", m.QemuPath).
+		Strs("args", qemuArgs).
+		Str("log_file", vm.QEMULogPath()).
+		Msg("Starting QEMU process")
+
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		return errors.Errorf("starting VM: %w", err)
 	}
 
+	// Update VM state
 	vm.Status = "running"
-	if cmd.Process == nil {
-		return errors.Errorf("failed to get VM PID")
-	}
 	vm.PID = cmd.Process.Pid
 
+	// Save the state
 	if err := vm.SaveState(); err != nil {
-		return errors.Errorf("saving VM state: %w", err)
+		logger.Error().Err(err).Msg("Failed to save VM state")
+		// Continue anyway, as the VM is running
 	}
 
-	// TODO: Wait for VM to boot and collect SSH info
+	logger.Info().
+		Str("name", vm.Name).
+		Int("pid", vm.PID).
+		Str("ssh_host", vm.SSHInfo.Host).
+		Int("ssh_port", vm.SSHInfo.Port).
+		Msg("VM started successfully")
+
+	return nil
+}
+
+// StartVMForeground starts a VM in foreground mode for testing
+func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
+	logger := zerolog.Ctx(ctx)
+	logger.Info().Str("name", vm.Config.Name).Msg("Starting VM in foreground")
+
+	// Make sure the VM name is set
+	vm.Name = vm.Config.Name
+
+	// Determine architecture and platform-specific settings
+	arch := ""
+	machine := ""
+	nic := ""
+	efi := ""
+
+	// Detect architecture from image name instead of QEMU binary
+	imageName := vm.Config.BaseImg.Name
+	if strings.Contains(imageName, "arm64") || strings.Contains(imageName, "aarch64") {
+		arch = "aarch64"
+		m.QemuPath = "qemu-system-aarch64"
+	} else if strings.Contains(imageName, "amd64") || strings.Contains(imageName, "x86_64") {
+		arch = "x86_64"
+		m.QemuPath = "qemu-system-x86_64"
+	} else {
+		// Default to host architecture
+		switch strings.ToLower(filepath.Base(m.QemuPath)) {
+		case "qemu-system-aarch64":
+			arch = "aarch64"
+		case "qemu-system-x86_64":
+			arch = "x86_64"
+		default:
+			return errors.Errorf("unsupported QEMU architecture")
+		}
+	}
+
+	logger.Debug().Str("arch", arch).Str("qemu", m.QemuPath).Msg("Detected architecture")
+
+	switch arch {
+	case "aarch64":
+		if _, err := os.Stat("/opt/homebrew/share/qemu/edk2-aarch64-code.fd"); err == nil {
+			efi = "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
+			machine = "virt,accel=hvf,highmem=on"
+		} else {
+			efi = "/usr/share/qemu/edk2-aarch64-code.fd"
+			machine = "virt,accel=kvm"
+		}
+	case "x86_64":
+		if _, err := os.Stat("/opt/homebrew/share/qemu/edk2-x86_64-code.fd"); err == nil {
+			efi = "/opt/homebrew/share/qemu/edk2-x86_64-code.fd"
+			machine = "q35,accel=hvf"
+		} else {
+			efi = "/usr/share/qemu/OVMF.fd"
+			machine = "q35,accel=kvm"
+		}
+	}
+
+	logger.Debug().
+		Str("machine", machine).
+		Str("efi", efi).
+		Msg("VM hardware configuration")
+
+	// Check if disk and cidata ISO exist
+	diskPath := vm.DiskPath()
+	ciDataPath := vm.CIDataPath()
+
+	if _, err := os.Stat(diskPath); os.IsNotExist(err) {
+		return errors.Errorf("VM disk image does not exist: %s", diskPath)
+	}
+
+	if _, err := os.Stat(ciDataPath); os.IsNotExist(err) {
+		return errors.Errorf("VM cloud-init ISO does not exist: %s", ciDataPath)
+	}
+
+	logger.Debug().
+		Str("disk", diskPath).
+		Str("cidata", ciDataPath).
+		Msg("VM disk configuration")
+
+	// Set up networking based on platform
+	switch vm.Config.Network.Type {
+	case "vmnet-shared":
+		nic = fmt.Sprintf("vmnet-shared,start-address=%s,subnet-mask=%s",
+			vm.Config.Network.IPRange,
+			vm.Config.Network.Subnet)
+	case "tap":
+		// TODO: Implement tap script handling
+		nic = "tap"
+	default:
+		// Default to user mode networking with port forwarding
+		nic = "user,hostfwd=tcp::2222-:22"
+		vm.SSHInfo.Host = "localhost"
+		vm.SSHInfo.Port = 2222
+	}
+
+	logger.Debug().
+		Str("nic", nic).
+		Str("mac", vm.Config.Network.MAC).
+		Msg("VM network configuration")
+
+	// Ensure SSH info is set
+	if vm.SSHInfo.Username == "" {
+		vm.SSHInfo.Username = "ubuntu" // Default for Ubuntu cloud images
+	}
+
+	// Prepare QEMU command
+	qemuArgs := []string{
+		"-nographic",
+		"-machine", machine,
+		"-cpu", "host",
+		"-smp", fmt.Sprintf("%d", vm.Config.CPUs),
+		"-m", vm.Config.Memory,
+		"-bios", efi,
+		"-nic", fmt.Sprintf("%s,mac=%s", nic, vm.Config.Network.MAC),
+		"-hda", diskPath,
+		"-drive", fmt.Sprintf("file=%s,driver=raw,if=virtio", ciDataPath),
+		// Add debugging options
+		"-d", "guest_errors,unimp",
+		"-D", vm.QEMULogPath(),
+	}
+
+	logger.Debug().
+		Strs("args", qemuArgs).
+		Msg("QEMU command arguments")
+
+	// Update VM state before running (in case we want to kill it)
+	vm.Status = "running"
+	// We can't set a real PID yet since the process hasn't started
+	vm.SaveState()
+
+	// Run QEMU in foreground
+	cmd := exec.CommandContext(ctx, m.QemuPath, qemuArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	logger.Info().
+		Str("command", m.QemuPath).
+		Strs("args", qemuArgs).
+		Msg("Starting QEMU process in foreground")
+
+	// This will block until QEMU exits
+	err := cmd.Run()
+	if err != nil {
+		logger.Error().Err(err).Msg("QEMU exited with error")
+		vm.Status = "error"
+		vm.SaveState()
+		return err
+	}
+
+	// QEMU has exited
+	vm.Status = "stopped"
+	vm.SaveState()
+
+	logger.Info().
+		Str("name", vm.Name).
+		Msg("VM stopped")
 
 	return nil
 }
@@ -328,39 +555,96 @@ func (m *LocalManager) DeleteVM(ctx context.Context, vm *VM) error {
 
 // GetVM retrieves a VM by name
 func (m *LocalManager) GetVM(ctx context.Context, name string) (*VM, error) {
-	entries, err := os.ReadDir(vmsDir())
-	if err != nil {
-		return nil, errors.Errorf("reading VMs directory: %w", err)
+	logger := zerolog.Ctx(ctx)
+	logger.Info().Str("name", name).Msg("Getting VM")
+
+	vmDir := filepath.Join(vmsDir(), name)
+	if _, err := os.Stat(vmDir); os.IsNotExist(err) {
+		return nil, errors.Errorf("VM not found: %s", name)
 	}
 
-	for _, entry := range entries {
-		if entry.Name() == name {
-			return &VM{
-				Config: VMConfig{
-					Name: entry.Name(),
-				},
-			}, nil
+	// Create a basic VM object
+	vm := &VM{
+		Name: name,
+		Config: VMConfig{
+			Name: name,
+		},
+	}
+
+	// Load VM state from disk
+	stateFile := filepath.Join(vmDir, "vm-state.json")
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		// No state file, assume VM is stopped
+		vm.Status = "stopped"
+		return vm, nil
+	}
+
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return nil, errors.Errorf("reading VM state file: %w", err)
+	}
+
+	if err := json.Unmarshal(data, vm); err != nil {
+		return nil, errors.Errorf("unmarshaling VM state: %w", err)
+	}
+
+	// Verify PID if VM is marked as running
+	if vm.Status == "running" && vm.PID > 0 {
+		// Check if process is actually running
+		process, err := os.FindProcess(vm.PID)
+		if err != nil || process == nil {
+			vm.Status = "stopped"
+			vm.SaveState() // Update state
+		} else {
+			// On Unix, FindProcess always succeeds, so we need to check if it's running
+			err = process.Signal(os.Signal(nil))
+			if err != nil {
+				vm.Status = "stopped"
+				vm.SaveState() // Update state
+			}
 		}
 	}
 
-	return nil, errors.Errorf("not implemented")
+	// Ensure the VM name is set
+	if vm.Name == "" {
+		vm.Name = name
+		vm.SaveState()
+	}
+
+	// Ensure config is at least partially populated
+	if vm.Config.Name == "" {
+		vm.Config.Name = name
+		vm.SaveState()
+	}
+
+	return vm, nil
 }
 
 // ListVMs lists all available VMs
 func (m *LocalManager) ListVMs(ctx context.Context) ([]*VM, error) {
+	logger := zerolog.Ctx(ctx)
+	logger.Info().Msg("Listing VMs")
+
 	entries, err := os.ReadDir(vmsDir())
 	if err != nil {
+		if os.IsNotExist(err) {
+			// VMs directory doesn't exist, return empty list
+			return []*VM{}, nil
+		}
 		return nil, errors.Errorf("reading VMs directory: %w", err)
 	}
 
 	vms := make([]*VM, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
-			vms = append(vms, &VM{
-				Config: VMConfig{
-					Name: entry.Name(),
-				},
-			})
+			vmName := entry.Name()
+			vm, err := m.GetVM(ctx, vmName)
+			if err != nil {
+				logger.Warn().Err(err).Str("name", vmName).Msg("Failed to load VM")
+				// Continue with other VMs
+				continue
+			}
+			vms = append(vms, vm)
 		}
 	}
 

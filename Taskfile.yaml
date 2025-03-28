@@ -115,3 +115,41 @@ tasks:
         cmds:
             - rm -rf bin
             - rm -rf .tmp
+
+    kvm:build:
+        desc: Build the KVM setup tool
+        cmds:
+            - ./go build -o bin/kvmsetup ./cmd/kvmsetup
+
+    kvm:setup:
+        desc: Setup KVM for CloudStack on ARM64 (requires root)
+        cmds:
+            - sudo ./bin/kvmsetup -action=setup {{.CLI_ARGS}}
+        deps:
+            - kvm:build
+
+    kvm:setup-only:
+        desc: Setup KVM directories and prerequisites only (without CloudStack installation)
+        cmds:
+            - sudo ./bin/kvmsetup -action=setup -setup-only=true {{.CLI_ARGS}}
+        deps:
+            - kvm:build
+
+    kvm:start:
+        desc: Start KVM and CloudStack services
+        cmds:
+            - sudo ./bin/kvmsetup -action=start
+        deps:
+            - kvm:build
+
+    kvm:stop:
+        desc: Stop KVM and CloudStack services
+        cmds:
+            - sudo ./bin/kvmsetup -action=stop
+        deps:
+            - kvm:build
+
+    kvm:verify:
+        desc: Verify KVM setup and configuration
+        cmds:
+            - sudo ./scripts/kvm-verify.sh

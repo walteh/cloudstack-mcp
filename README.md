@@ -70,6 +70,26 @@ task cloudstack:setup
 task run:server
 ```
 
+### Using KVM on Apple Silicon with Asahi Linux
+
+If you're running Asahi Linux on Apple Silicon (M1/M2/M3), you can set up CloudStack with native KVM support:
+
+```bash
+# Build the KVM setup tool
+task kvm:build
+
+# Full setup (installs CloudStack, configures KVM, and more)
+task kvm:setup
+
+# Or, for basic setup only (without CloudStack installation)
+task kvm:setup-only
+
+# Start the services
+task kvm:start
+```
+
+This approach leverages native KVM virtualization support in Asahi Linux on Apple Silicon, providing better performance than emulation. See [docs/kvm-setup.md](docs/kvm-setup.md) for detailed instructions and troubleshooting.
+
 ## Configuration
 
 The MCP server can be configured through environment variables or command-line flags:

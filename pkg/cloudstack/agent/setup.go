@@ -2,7 +2,11 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,11 +14,13 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/walteh/cloudstack-mcp/pkg/qemu"
+	"gitlab.com/tozd/go/errors"
 )
 
 const (
 	// Default CloudStack system VM template URL for ARM64
-	DefaultSystemVMTemplateURL = "https://download.cloudstack.org/arm64/systemvmtemplate/4.18/systemvmtemplate-4.18.0-arm64.qcow2"
+	DefaultSystemVMTemplateURL = "https://download.cloudstack.org/arm64/systemvmtemplate/4.18/systemvmtemplate-4.18.0-kvm-arm64.qcow2"
+	DefaultSystemVMChecksum    = "sha256:12c0f747a9b374c64922eced6fcaee712c87d9fdbf27f4556c4b63467c73da3d"
 
 	// Default size for CloudStack management server disk
 	DefaultManagementDiskSizeGB = 20
@@ -51,20 +57,36 @@ func NewSetup(workDir string, logger zerolog.Logger) *Setup {
 	}
 }
 
+// getTemplateCachePath returns the path where a template should be stored in cache
+func (s *Setup) getTemplateCachePath(name string) (string, error) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", errors.Errorf("getting user cache directory: %w", err)
+	}
+
+	// Create a cache directory specific to our application
+	templateCacheDir := filepath.Join(cacheDir, "cloudstack-kvm", "templates")
+	if err := os.MkdirAll(templateCacheDir, 0755); err != nil {
+		return "", errors.Errorf("creating template cache directory: %w", err)
+	}
+
+	return filepath.Join(templateCacheDir, name+".qcow2"), nil
+}
+
 // InitializeEnvironment prepares the environment for CloudStack
 func (s *Setup) InitializeEnvironment(ctx context.Context) error {
 	s.logger.Info().Msg("Initializing CloudStack environment")
 
 	// Check if QEMU is installed
 	if err := s.qemuMgr.CheckQEMUInstalled(ctx); err != nil {
-		return fmt.Errorf("QEMU check failed: %w", err)
+		return errors.Errorf("QEMU check failed: %w", err)
 	}
 
 	// Create necessary directories
 	for _, dir := range []string{"templates", "disks", "storage"} {
 		path := filepath.Join(s.workDir, dir)
 		if err := os.MkdirAll(path, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			return errors.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
@@ -72,24 +94,139 @@ func (s *Setup) InitializeEnvironment(ctx context.Context) error {
 	return nil
 }
 
+// verifyChecksum verifies the SHA256 checksum of a file
+func verifyChecksum(path, expected string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return errors.Errorf("opening file: %w", err)
+	}
+	defer f.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return errors.Errorf("reading file: %w", err)
+	}
+
+	computed := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	if computed != expected {
+		return errors.Errorf("checksum mismatch")
+	}
+
+	return nil
+}
+
 // DownloadTemplates downloads required CloudStack templates
 func (s *Setup) DownloadTemplates(ctx context.Context) error {
 	s.logger.Info().Msg("Downloading CloudStack templates")
 
-	templatePath := filepath.Join(s.workDir, "templates", "systemvm.qcow2")
-
-	// Skip if template already exists
-	if _, err := os.Stat(templatePath); err == nil {
-		s.logger.Info().Str("path", templatePath).Msg("Template already exists, skipping download")
-		return nil
+	// Get the cache path for the template
+	templateName := "systemvm-4.18-arm64"
+	templateCachePath, err := s.getTemplateCachePath(templateName)
+	if err != nil {
+		return errors.Errorf("getting template cache path: %w", err)
 	}
 
-	// Download the system VM template
-	if err := s.qemuMgr.DownloadCloudStackTemplate(ctx, DefaultSystemVMTemplateURL, templatePath); err != nil {
-		return fmt.Errorf("failed to download system VM template: %w", err)
+	// Check if template exists in cache and verify checksum
+	if _, err := os.Stat(templateCachePath); err == nil {
+		if err := verifyChecksum(templateCachePath, DefaultSystemVMChecksum); err == nil {
+			s.logger.Info().
+				Str("template", templateName).
+				Str("path", templateCachePath).
+				Msg("Template found in cache with valid checksum")
+
+			// Create symlink in workdir
+			workdirPath := filepath.Join(s.workDir, "templates", templateName+".qcow2")
+			if err := os.MkdirAll(filepath.Dir(workdirPath), 0755); err != nil {
+				return errors.Errorf("creating template directory in workdir: %w", err)
+			}
+
+			// Remove existing symlink or file
+			_ = os.Remove(workdirPath)
+
+			// Create relative symlink
+			if err := os.Symlink(templateCachePath, workdirPath); err != nil {
+				return errors.Errorf("creating symlink to cached template: %w", err)
+			}
+
+			return nil
+		}
+		// Checksum failed, remove the cached file
+		os.Remove(templateCachePath)
 	}
 
-	s.logger.Info().Msg("Templates downloaded")
+	s.logger.Info().
+		Str("template", templateName).
+		Str("url", DefaultSystemVMTemplateURL).
+		Msg("Downloading template")
+
+	// Create a temporary file for downloading
+	tmpPath := templateCachePath + ".tmp"
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		return errors.Errorf("creating temporary file: %w", err)
+	}
+	defer out.Close()
+
+	// Create HTTP request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", DefaultSystemVMTemplateURL, nil)
+	if err != nil {
+		return errors.Errorf("creating request: %w", err)
+	}
+
+	// Send the request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return errors.Errorf("downloading template: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("downloading template: HTTP %d", resp.StatusCode)
+	}
+
+	// Create a hash writer to verify the checksum
+	hash := sha256.New()
+	writer := io.MultiWriter(out, hash)
+
+	// Copy the response body to the file and hash writer
+	if _, err := io.Copy(writer, resp.Body); err != nil {
+		return errors.Errorf("writing template file: %w", err)
+	}
+
+	// Close the file before moving it
+	out.Close()
+
+	// Verify the checksum
+	computed := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	if computed != DefaultSystemVMChecksum {
+		os.Remove(tmpPath)
+		return errors.Errorf("checksum mismatch: got %s, want %s", computed, DefaultSystemVMChecksum)
+	}
+
+	// Move the temporary file to the final location
+	if err := os.Rename(tmpPath, templateCachePath); err != nil {
+		return errors.Errorf("moving template file: %w", err)
+	}
+
+	// Create symlink in workdir
+	workdirPath := filepath.Join(s.workDir, "templates", templateName+".qcow2")
+	if err := os.MkdirAll(filepath.Dir(workdirPath), 0755); err != nil {
+		return errors.Errorf("creating template directory in workdir: %w", err)
+	}
+
+	// Remove existing symlink or file
+	_ = os.Remove(workdirPath)
+
+	// Create relative symlink
+	if err := os.Symlink(templateCachePath, workdirPath); err != nil {
+		return errors.Errorf("creating symlink to cached template: %w", err)
+	}
+
+	s.logger.Info().
+		Str("template", templateName).
+		Str("path", templateCachePath).
+		Msg("Template downloaded and cached successfully")
+
 	return nil
 }
 
@@ -272,4 +409,9 @@ func (s *Setup) DisplayVMInfo(ctx context.Context) error {
 		Msg("VM files and configurations are located in this directory")
 
 	return nil
+}
+
+// GetQEMUManager returns the QEMU manager instance
+func (s *Setup) GetQEMUManager() *qemu.Manager {
+	return s.qemuMgr
 }

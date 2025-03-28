@@ -309,6 +309,14 @@ func (m *Manager) CreateVMWithConfig(ctx context.Context, config VMConfig) error
 		return errors.Errorf("failed to create domain: %w", err)
 	}
 
+	go func() {
+		<-ctx.Done()
+		m.logger.Info().Str("name", config.Name).Msg("Stopping VM")
+		if err := m.StopVM(ctx, config.Name); err != nil {
+			m.logger.Error().Err(err).Msg("Failed to stop VM")
+		}
+	}()
+
 	m.domains[config.Name] = &Domain{
 		cmd:       cmd,
 		qmpSocket: socketPath,
@@ -322,112 +330,112 @@ func (m *Manager) CreateVMWithConfig(ctx context.Context, config VMConfig) error
 }
 
 // CreateVM is a simple version using default values (for backward compatibility)
-func (m *Manager) CreateVM(ctx context.Context, name string, cpu int, memoryMB int, diskPath string, machine string) error {
-	m.logger.Info().
-		Str("name", name).
-		Int("cpu", cpu).
-		Int("memoryMB", memoryMB).
-		Str("diskPath", diskPath).
-		Str("machine", machine).
-		Msg("Creating VM")
+// func (m *Manager) CreateVM(ctx context.Context, name string, cpu int, memoryMB int, diskPath string, machine string) error {
+// 	m.logger.Info().
+// 		Str("name", name).
+// 		Int("cpu", cpu).
+// 		Int("memoryMB", memoryMB).
+// 		Str("diskPath", diskPath).
+// 		Str("machine", machine).
+// 		Msg("Creating VM")
 
-	// Check if VM already exists
-	if _, exists := m.domains[name]; exists {
-		return fmt.Errorf("VM %s already exists", name)
-	}
+// 	// Check if VM already exists
+// 	if _, exists := m.domains[name]; exists {
+// 		return fmt.Errorf("VM %s already exists", name)
+// 	}
 
-	// Create sockets directory if it doesn't exist
-	socketsDir := filepath.Join(m.workDir, "sockets")
-	if err := os.MkdirAll(socketsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create sockets directory: %w", err)
-	}
+// 	// Create sockets directory if it doesn't exist
+// 	socketsDir := filepath.Join(m.workDir, "sockets")
+// 	if err := os.MkdirAll(socketsDir, 0755); err != nil {
+// 		return fmt.Errorf("failed to create sockets directory: %w", err)
+// 	}
 
-	// Create VM configuration
-	qmpSocket := filepath.Join(socketsDir, name+".sock")
-	pidFile := filepath.Join(socketsDir, name+".pid")
+// 	// Create VM configuration
+// 	qmpSocket := filepath.Join(socketsDir, name+".sock")
+// 	pidFile := filepath.Join(socketsDir, name+".pid")
 
-	// Remove any existing socket or PID files
-	_ = os.Remove(qmpSocket)
-	_ = os.Remove(pidFile)
+// 	// Remove any existing socket or PID files
+// 	_ = os.Remove(qmpSocket)
+// 	_ = os.Remove(pidFile)
 
-	// Basic QEMU arguments
-	args := []string{
-		"-name", name,
-		"-machine", machine,
-		"-m", fmt.Sprintf("%d", memoryMB),
-		"-smp", fmt.Sprintf("%d", cpu),
-		"-drive", fmt.Sprintf("file=%s,format=qcow2", diskPath),
-		"-qmp", fmt.Sprintf("unix:%s,server,nowait", qmpSocket),
-		"-pidfile", pidFile,
-	}
+// 	// Basic QEMU arguments
+// 	args := []string{
+// 		"-name", name,
+// 		"-machine", machine,
+// 		"-m", fmt.Sprintf("%d", memoryMB),
+// 		"-smp", fmt.Sprintf("%d", cpu),
+// 		"-drive", fmt.Sprintf("file=%s,format=qcow2", diskPath),
+// 		"-qmp", fmt.Sprintf("unix:%s,server,nowait", qmpSocket),
+// 		"-pidfile", pidFile,
+// 	}
 
-	// Check if KVM is available
-	if !m.hasKVM {
-		m.logger.Warn().Msg("KVM requested but not available, running without acceleration")
-	}
+// 	// Check if KVM is available
+// 	if !m.hasKVM {
+// 		m.logger.Warn().Msg("KVM requested but not available, running without acceleration")
+// 	}
 
-	// Add networking
-	if runtime.GOOS == "darwin" {
-		m.logger.Info().Msg("Using user networking for macOS")
-		args = append(args,
-			"-netdev", "user,id=net0",
-			"-device", "virtio-net-pci,netdev=net0",
-		)
-	}
+// 	// Add networking
+// 	if runtime.GOOS == "darwin" {
+// 		m.logger.Info().Msg("Using user networking for macOS")
+// 		args = append(args,
+// 			"-netdev", "user,id=net0",
+// 			"-device", "virtio-net-pci,netdev=net0",
+// 		)
+// 	}
 
-	// Add display for ARM64
-	if runtime.GOARCH == "arm64" {
-		m.logger.Info().Msg("Using virtio-gpu for ARM64")
-		args = append(args,
-			"-device", "virtio-gpu-pci",
-			"-display", "default",
-		)
-	}
+// 	// Add display for ARM64
+// 	if runtime.GOARCH == "arm64" {
+// 		m.logger.Info().Msg("Using virtio-gpu for ARM64")
+// 		args = append(args,
+// 			"-device", "virtio-gpu-pci",
+// 			"-display", "default",
+// 		)
+// 	}
 
-	m.logger.Debug().Strs("args", args).Msg("QEMU command")
+// 	m.logger.Debug().Strs("args", args).Msg("QEMU command")
 
-	// Create VM configuration file
-	configPath := filepath.Join(m.workDir, name+".conf")
-	config := fmt.Sprintf(`name=%s
-cpu=%d
-memory=%d
-disk=%s
-qmp_socket=%s
-pid_file=%s
-`, name, cpu, memoryMB, diskPath, qmpSocket, pidFile)
+// 	// Create VM configuration file
+// 	configPath := filepath.Join(m.workDir, name+".conf")
+// 	config := fmt.Sprintf(`name=%s
+// cpu=%d
+// memory=%d
+// disk=%s
+// qmp_socket=%s
+// pid_file=%s
+// `, name, cpu, memoryMB, diskPath, qmpSocket, pidFile)
 
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
-		return fmt.Errorf("failed to write VM config: %w", err)
-	}
+// 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+// 		return fmt.Errorf("failed to write VM config: %w", err)
+// 	}
 
-	// Start QEMU process
-	cmd := exec.CommandContext(ctx, "qemu-system-"+runtime.GOARCH, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+// 	// Start QEMU process
+// 	cmd := exec.CommandContext(ctx, "qemu-system-"+runtime.GOARCH, args...)
+// 	cmd.Stdout = os.Stdout
+// 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start QEMU: %w", err)
-	}
+// 	if err := cmd.Start(); err != nil {
+// 		return fmt.Errorf("failed to start QEMU: %w", err)
+// 	}
 
-	// Wait for PID file to be created
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(pidFile); err == nil {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+// 	// Wait for PID file to be created
+// 	for i := 0; i < 10; i++ {
+// 		if _, err := os.Stat(pidFile); err == nil {
+// 			break
+// 		}
+// 		time.Sleep(500 * time.Millisecond)
+// 	}
 
-	// Store domain information
-	m.domains[name] = &Domain{
-		cmd:       cmd,
-		qmpSocket: qmpSocket,
-		pidFile:   pidFile,
-	}
+// 	// Store domain information
+// 	m.domains[name] = &Domain{
+// 		cmd:       cmd,
+// 		qmpSocket: qmpSocket,
+// 		pidFile:   pidFile,
+// 	}
 
-	m.logger.Info().Str("name", name).Msg("VM created and connected")
+// 	m.logger.Info().Str("name", name).Msg("VM created and connected")
 
-	return nil
-}
+// 	return nil
+// }
 
 // StopVM stops a running VM
 func (m *Manager) StopVM(ctx context.Context, name string) error {
@@ -469,27 +477,27 @@ func (m *Manager) CreateDisk(ctx context.Context, path string, sizeGB int) error
 	return nil
 }
 
-// DownloadCloudStackTemplate downloads a CloudStack system VM template
-func (m *Manager) DownloadCloudStackTemplate(ctx context.Context, templateURL string, destPath string) error {
-	m.logger.Info().Str("url", templateURL).Str("dest", destPath).Msg("Downloading CloudStack template")
+// // DownloadCloudStackTemplate downloads a CloudStack system VM template
+// func (m *Manager) DownloadCloudStackTemplate(ctx context.Context, templateURL string, destPath string) error {
+// 	m.logger.Info().Str("url", templateURL).Str("dest", destPath).Msg("Downloading CloudStack template")
 
-	// Create destination directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		return errors.Errorf("failed to create destination directory: %w", err)
-	}
+// 	// Create destination directory if it doesn't exist
+// 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+// 		return errors.Errorf("failed to create destination directory: %w", err)
+// 	}
 
-	// Use curl to download the file
-	cmd := exec.CommandContext(ctx, "curl", "-L", "-o", destPath, templateURL)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+// 	// Use curl to download the file
+// 	cmd := exec.CommandContext(ctx, "curl", "-L", "-o", destPath, templateURL)
+// 	cmd.Stdout = os.Stdout
+// 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return errors.Errorf("failed to download template: %w", err)
-	}
+// 	if err := cmd.Run(); err != nil {
+// 		return errors.Errorf("failed to download template: %w", err)
+// 	}
 
-	m.logger.Info().Str("dest", destPath).Msg("Template downloaded")
-	return nil
-}
+// 	m.logger.Info().Str("dest", destPath).Msg("Template downloaded")
+// 	return nil
+// }
 
 // IsSocketActive checks if a QMP socket is active and usable
 func IsSocketActive(socketPath string) bool {

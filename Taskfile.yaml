@@ -100,6 +100,31 @@ tasks:
         cmds:
             - docker compose --progress=tty build
 
+    qemu:setup:
+        desc: Setup QEMU host for CloudStack
+        cmds:
+            - bash ./scripts/setup_qemu_host.sh
+
+    libvirt:setup:
+        desc: Setup libvirt for CloudStack integration
+        cmds:
+            - bash ./scripts/setup_libvirt.sh
+
+    kvm:add-host:
+        desc: Add the KVM host to CloudStack
+        cmds:
+            - bash ./scripts/add_kvm_host.sh
+
+    qemu:status:
+        desc: Check status of QEMU host
+        cmds:
+            - |
+                echo -e "\033[0;34m=== QEMU Host Status ===\033[0m"
+                echo -e "Network bridge:"
+                ifconfig bridge100 || echo -e "\033[0;31mNetwork bridge not found\033[0m"
+                echo -e "\nDirectory structure:"
+                ls -la $HOME/.cloudstack/qemu || echo -e "\033[0;31mQEMU directory not found\033[0m"
+
     run:server:
         desc: Run the MCP server
         cmds:

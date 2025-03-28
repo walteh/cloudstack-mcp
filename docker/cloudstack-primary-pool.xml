@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8"?><pool type="dir"><name>cloudstack-primary</name><target><path>/var/cloudstack/primary</path><permissions><mode>0755</mode><owner>0</owner><group>0</group></permissions></target></pool>

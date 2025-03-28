@@ -83,6 +83,26 @@ services:
             - cloudstack-network
         command: ["/app/server", "-http=false"]
 
+    kvm-host:
+        build:
+            context: .
+            dockerfile: docker/kvm-host.Dockerfile
+        container_name: cloudstack-mcp-kvm
+        privileged: true
+        ports:
+            - "16509:16509"
+            - "2222:22"
+        networks:
+            - cloudstack-network
+        volumes:
+            - kvm-data:/var/lib/libvirt/images
+            - kvm-primary:/var/cloudstack/primary
+            - kvm-secondary:/var/cloudstack/secondary
+        restart: unless-stopped
+        depends_on:
+            cloudstack:
+                condition: service_healthy
+
 networks:
     cloudstack-network:
         driver: bridge
@@ -95,4 +115,10 @@ volumes:
             o: "bind"
             device: ${PWD}/.tmp/cloudstack-data
     cloudmonkey-data:
+        driver: local
+    kvm-data:
+        driver: local
+    kvm-primary:
+        driver: local
+    kvm-secondary:
         driver: local

@@ -141,7 +141,7 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 		return nil, errors.Errorf("generating meta-data: %w", err)
 	}
 
-	userData, err := vm.UserData()
+	userData, err := vm.UserData(true)
 	if err != nil {
 		return nil, errors.Errorf("generating user-data: %w", err)
 	}

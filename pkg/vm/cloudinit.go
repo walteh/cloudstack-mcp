@@ -29,7 +29,7 @@ func (vm *VM) BuildMetaData() (string, error) {
 // }
 
 // generateDefaultUserData generates a default cloud-init user-data configuration
-func (vm *VM) UserData() (string, error) {
+func (vm *VM) UserData(withKvm bool) (string, error) {
 	// Try to get the user's SSH public key
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -40,6 +40,23 @@ func (vm *VM) UserData() (string, error) {
 	sshPubKey, err := os.ReadFile(sshPubKeyPath)
 	if err != nil {
 		return "", errors.Errorf("reading SSH public key: %w", err)
+	}
+
+	var kvmPackages, kvmCommands string
+	if withKvm {
+		kvmPackages = `
+  - qemu-kvm
+  - qemu-utils
+  - libvirt-daemon-system
+  - libvirt-clients
+  - bridge-utils
+  - virt-manager
+`
+		kvmCommands = `
+  - systemctl enable libvirtd
+  - systemctl start libvirtd
+  - usermod -aG libvirt ubuntu
+`
 	}
 
 	// Create cloud-init user-data
@@ -55,6 +72,7 @@ packages:
   - curl
   - ca-certificates
   - openssh-server
+%s
 
 write_files:
   - path: /etc/sysctl.d/50-vip-arp.conf
@@ -68,7 +86,8 @@ write_files:
 runcmd:
   - sysctl -p /etc/sysctl.d/50-vip-arp.conf
   - modprobe br_netfilter
-`, strings.TrimSpace(string(sshPubKey)))
+%s
+`, strings.TrimSpace(string(sshPubKey)), kvmPackages, kvmCommands)
 
 	return userData, nil
 }

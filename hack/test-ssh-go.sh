@@ -8,10 +8,10 @@ go build -o vmctl ./cmd/vmctl
 # Start the VM if it's not already running
 echo "Checking VM status..."
 ./vmctl list-vms | grep test-vm | grep running || {
-    echo "Starting VM test-vm..."
-    ./vmctl start-vm test-vm
-    echo "Waiting 30 seconds for VM to boot..."
-    sleep 30
+	echo "Starting VM test-vm..."
+	./vmctl start-vm test-vm
+	echo "Waiting 30 seconds for VM to boot..."
+	sleep 30
 }
 
 # Execute a command on the VM

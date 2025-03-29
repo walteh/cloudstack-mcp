@@ -8,8 +8,8 @@ STATE_FILE=~/.cloudstack-mcp/vms/${VM_NAME}/vm-state.json
 PID=$(ps aux | grep qemu | grep ${VM_NAME} | grep -v grep | awk '{print $2}')
 
 if [ -z "$PID" ]; then
-    echo "No QEMU process found for VM $VM_NAME"
-    exit 1
+	echo "No QEMU process found for VM $VM_NAME"
+	exit 1
 fi
 
 echo "Found QEMU process for $VM_NAME with PID $PID"

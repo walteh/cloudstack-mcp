@@ -47,7 +47,7 @@ type NetworkConfig struct {
 type VM struct {
 	Name      string            `json:"name"`
 	PID       int               `json:"pid,omitempty"`
-	Status    string            `json:"status"` // "created", "running", "stopped", "error"
+	Status    string            `json:"status"` // "created", "initializing", "ready", "started", "stopped", "failed", "deleted"
 	LastError string            `json:"last_error,omitempty"`
 	Config    VMConfig          `json:"config"`
 	SSHInfo   SSHInfo           `json:"ssh_info"`
@@ -78,7 +78,7 @@ func (vm *VM) Dir() string {
 
 // DiskPath returns the path to the VM's disk image
 func (vm *VM) DiskPath() string {
-	return filepath.Join(vm.Dir(), "disk.img")
+	return filepath.Join(vm.Dir(), vm.Config.Name+".qcow2")
 }
 
 // CIDataPath returns the path to the VM's cloud-init data ISO
@@ -263,8 +263,14 @@ func (vm *VM) Stop() error {
 		return errors.Errorf("killing VM process: %w", err)
 	}
 
-	// Update the state
-	vm.Status = "stopped"
+	// Update the state based on current state
+	if vm.Status == VMStatusInitializing {
+		// If we stopped during initialization, mark as failed
+		vm.Status = VMStatusFailed
+	} else {
+		// Otherwise, mark as stopped
+		vm.Status = VMStatusStopped
+	}
 
 	return vm.SaveState()
 }
@@ -308,9 +314,19 @@ func isProcessRunning(pid int) bool {
 
 // GetStatus dynamically checks the status of the VM rather than relying on saved state
 func (vm *VM) GetStatus() string {
+	// If the VM is in initializing or failed state, don't try to check running state
+	if vm.Status == VMStatusInitializing || vm.Status == VMStatusFailed {
+		return vm.Status
+	}
+
 	// First try the PID-based check
 	if vm.PID > 0 && isProcessRunning(vm.PID) {
-		return "running"
+		// If we're running but we weren't in "started" state, update it
+		if vm.Status != VMStatusStarted {
+			vm.Status = VMStatusStarted
+			vm.SaveState()
+		}
+		return VMStatusStarted
 	}
 
 	// If that fails, check for QEMU processes with this VM's name
@@ -330,8 +346,9 @@ func (vm *VM) GetStatus() string {
 						if err == nil && pid > 0 {
 							// Update the PID
 							vm.PID = pid
+							vm.Status = VMStatusStarted
 							vm.SaveState()
-							return "running"
+							return VMStatusStarted
 						}
 					}
 				}
@@ -339,6 +356,27 @@ func (vm *VM) GetStatus() string {
 		}
 	}
 
-	// No running processes found
-	return "stopped"
+	// No running processes found, but if we were in ready state, maintain it
+	if vm.Status == VMStatusReady {
+		return VMStatusReady
+	}
+
+	// Otherwise assume we're stopped
+	if vm.Status != VMStatusStopped && vm.Status != VMStatusCreated && vm.Status != VMStatusDeleted {
+		vm.Status = VMStatusStopped
+		vm.SaveState()
+	}
+
+	return vm.Status
 }
+
+// VM status constants
+const (
+	VMStatusCreated      = "created"      // VM is created but not yet initialized
+	VMStatusInitializing = "initializing" // VM is starting up and cloud-init is running
+	VMStatusReady        = "ready"        // VM has been initialized successfully but is not running
+	VMStatusStarted      = "started"      // VM is running
+	VMStatusStopped      = "stopped"      // VM is stopped
+	VMStatusFailed       = "failed"       // VM initialization failed
+	VMStatusDeleted      = "deleted"      // VM is marked for deletion
+)

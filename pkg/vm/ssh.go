@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -218,7 +219,74 @@ func (vm *VM) ExecShell() error {
 	return cmd.Run()
 }
 
+// WaitForSSH attempts to connect to the VM via SSH, retrying until successful or timeout
+func (vm *VM) WaitForSSH(ctx context.Context, timeoutSeconds int) (*ssh.Client, error) {
+	// Create SSH config
+	config, err := vm.createSSHConfig()
+	if err != nil {
+		return nil, errors.Errorf("creating SSH config: %w", err)
+	}
+
+	// Set a timeout for the entire operation
+	timeout := time.After(time.Duration(timeoutSeconds) * time.Second)
+	retryInterval := 5 * time.Second
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+
+	address := fmt.Sprintf("%s:%d", vm.SSHInfo.Host, vm.SSHInfo.Port)
+	var client *ssh.Client
+
+	// Try to connect until success or timeout
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.Errorf("context canceled while waiting for SSH: %w", ctx.Err())
+		case <-timeout:
+			return nil, errors.Errorf("timed out waiting for SSH connection")
+		case <-ticker.C:
+			var dialErr error
+			client, dialErr = ssh.Dial("tcp", address, config)
+			if dialErr == nil {
+				// Successfully connected
+				return client, nil
+			}
+			// Keep trying
+		}
+	}
+}
+
+// RunCommand executes a command on the VM via SSH and returns the output
+func (vm *VM) RunCommand(ctx context.Context, command string) (string, error) {
+	// Check if context is already canceled
+	if ctx.Err() != nil {
+		return "", errors.Errorf("context already canceled: %w", ctx.Err())
+	}
+
+	// Connect to the VM
+	client, err := vm.WaitForSSH(ctx, 30) // 30 second timeout for initial connection
+	if err != nil {
+		return "", errors.Errorf("connecting to VM: %w", err)
+	}
+	defer client.Close()
+
+	// Create a session
+	session, err := client.NewSession()
+	if err != nil {
+		return "", errors.Errorf("creating SSH session: %w", err)
+	}
+	defer session.Close()
+
+	// Run the command
+	output, err := session.CombinedOutput(command)
+	if err != nil {
+		return string(output), errors.Errorf("command failed: %w: %s", err, output)
+	}
+
+	return string(output), nil
+}
+
 // ExecCommand executes a command on the VM via SSH and returns the output
+// This is a simpler version that uses the ssh command-line client
 func (vm *VM) ExecCommand(command string) (string, error) {
 	// Check if the VM is running
 	if vm.GetStatus() != "running" {

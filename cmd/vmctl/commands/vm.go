@@ -3,7 +3,10 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/walteh/cloudstack-mcp/pkg/vm"
@@ -145,13 +148,45 @@ func listVMs(ctx context.Context) error {
 	fmt.Println("Virtual Machines:")
 	for _, vm := range vms {
 		status := vm.GetStatus()
-		fmt.Printf("  - %s (Status: %s)\n", vm.Name, status)
+		statusInfo := status
+
+		// Add more detailed status information
+		switch status {
+		case "initializing":
+			statusInfo = fmt.Sprintf("%s (Cloud-init running)", status)
+		case "ready":
+			statusInfo = fmt.Sprintf("%s (Ready to start)", status)
+		case "failed":
+			if vm.LastError != "" {
+				statusInfo = fmt.Sprintf("%s (%s)", status, vm.LastError)
+			}
+		}
+
+		fmt.Printf("  - %s (Status: %s)\n", vm.Name, statusInfo)
 	}
 
 	return nil
 }
 
 func createVM(ctx context.Context, name, imgName string) error {
+	// Create a cancelable context so we can handle ctrl-c
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Set up signal handling for graceful cancellation
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		select {
+		case <-signalCh:
+			fmt.Println("\nReceived cancellation signal, cleaning up...")
+			cancel()
+		case <-ctx.Done():
+			// Context canceled elsewhere
+		}
+	}()
+
 	// Create default VM configuration
 	config := vm.VMConfig{
 		Name:     name,
@@ -169,30 +204,80 @@ func createVM(ctx context.Context, name, imgName string) error {
 		},
 	}
 
+	fmt.Printf("Creating VM %s with image %s...\n", name, imgName)
 	// Create VM
 	createdVM, err := Manager.CreateVM(ctx, config)
 	if err != nil {
 		return errors.Errorf("creating VM: %w", err)
 	}
 
-	fmt.Printf("VM %s created successfully\n", name)
+	fmt.Printf("VM %s created successfully. Initializing VM...\n", name)
 
-	// Start VM automatically
+	// Start VM for initialization
 	if err := Manager.StartVM(ctx, createdVM); err != nil {
+		// If context was canceled, we need to clean up
+		if ctx.Err() != nil {
+			fmt.Println("VM creation canceled, cleaning up...")
+			cleanupCanceledVM(context.Background(), createdVM)
+			return ctx.Err()
+		}
 		return errors.Errorf("starting VM: %w", err)
 	}
 
-	fmt.Printf("VM %s started successfully\n", name)
+	fmt.Printf("VM %s is starting, waiting for cloud-init to complete...\n", name)
+	fmt.Println("(Press Ctrl+C to cancel)")
+
+	// Wait for VM to complete initialization
+	err = Manager.WaitForInitialization(ctx, createdVM)
+
+	// If context was canceled, we need to clean up
+	if ctx.Err() != nil {
+		fmt.Println("VM initialization canceled, cleaning up...")
+		cleanupCanceledVM(context.Background(), createdVM)
+		return ctx.Err()
+	}
+
+	if err != nil {
+		fmt.Printf("VM %s failed to initialize: %v\n", name, err)
+		return err
+	}
+
+	fmt.Printf("VM %s initialized successfully and is now ready to use\n", name)
 	return nil
 }
 
+// cleanupCanceledVM cleans up a VM that was canceled during creation or initialization
+func cleanupCanceledVM(ctx context.Context, vm *vm.VM) {
+	// Use a new context to ensure cleanup happens even if the original context was canceled
+	fmt.Printf("Cleaning up VM %s...\n", vm.Name)
+
+	// Stop the VM if it's running
+	status := vm.GetStatus()
+	if status == "started" || status == "initializing" {
+		if err := vm.Stop(); err != nil {
+			fmt.Printf("Warning: Failed to stop VM: %v\n", err)
+		}
+	}
+
+	// Mark the VM as failed
+	vm.Status = "failed"
+	vm.LastError = "Canceled by user"
+	vm.SaveState()
+}
+
 func startVM(ctx context.Context, name string) error {
-	vm, err := Manager.GetVM(ctx, name)
+	vmd, err := Manager.GetVM(ctx, name)
 	if err != nil {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	if err := Manager.StartVM(ctx, vm); err != nil {
+	// Make sure the VM is in a state where it can be started
+	status := vmd.GetStatus()
+	if status != "stopped" && status != "ready" {
+		return errors.Errorf("VM is in state %s and cannot be started. VM must be in 'stopped' or 'ready' state", status)
+	}
+
+	if err := Manager.StartVM(ctx, vmd); err != nil {
 		return errors.Errorf("starting VM: %w", err)
 	}
 
@@ -201,12 +286,18 @@ func startVM(ctx context.Context, name string) error {
 }
 
 func startVMForeground(ctx context.Context, name string) error {
-	vm, err := Manager.GetVM(ctx, name)
+	vmd, err := Manager.GetVM(ctx, name)
 	if err != nil {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	if err := Manager.StartVMForeground(ctx, vm); err != nil {
+	// Make sure the VM is in a state where it can be started
+	status := vmd.GetStatus()
+	if status != "stopped" && status != "ready" {
+		return errors.Errorf("VM is in state %s and cannot be started. VM must be in 'stopped' or 'ready' state", status)
+	}
+
+	if err := Manager.StartVMForeground(ctx, vmd); err != nil {
 		return errors.Errorf("starting VM: %w", err)
 	}
 

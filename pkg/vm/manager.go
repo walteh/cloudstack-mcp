@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"gitlab.com/tozd/go/errors"
@@ -33,6 +35,9 @@ type Manager interface {
 
 	// ListVMs lists all available VMs
 	ListVMs(ctx context.Context) ([]*VM, error)
+
+	// WaitForInitialization waits for VM initialization to complete
+	WaitForInitialization(ctx context.Context, vm *VM) error
 }
 
 // LocalManager implements Manager for local QEMU VMs
@@ -86,6 +91,7 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 			Port:       22,
 		},
 		MetaData: map[string]string{},
+		Status:   VMStatusCreated,
 	}
 
 	if err := os.MkdirAll(vm.Dir(), 0755); err != nil {
@@ -119,17 +125,6 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 		return nil, errors.Errorf("creating VM disk: %s: %w", output, err)
 	}
 
-	// Create VM object
-	// vm := &VM{
-	// 	Config:     config,
-	// 	diskOutput: string(output),
-	// 	SSHInfo: SSHInfo{
-	// 		Username:   "ubuntu", // Default for Ubuntu cloud images
-	// 		PrivateKey: "",       // Will be set when VM starts
-	// 		Host:       "",       // Will be set when VM starts
-	// 		Port:       22,
-	// 	},
-	// }
 	vm.MetaData["disk_output"] = string(output)
 
 	metaData, err := vm.BuildMetaData()
@@ -181,8 +176,7 @@ func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, erro
 
 	logger.Info().Str("name", config.Name).Msg("VM created successfully")
 
-	vm.Status = "created"
-
+	// Save the state
 	if err := vm.SaveState(); err != nil {
 		return nil, errors.Errorf("saving VM state: %w", err)
 	}
@@ -306,7 +300,7 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 	}
 
 	// Update VM state
-	vm.Status = "running"
+	vm.Status = VMStatusInitializing
 	vm.PID = cmd.Process.Pid
 
 	// Save the state
@@ -320,7 +314,7 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 		Int("pid", vm.PID).
 		Str("ssh_host", vm.SSHInfo.Host).
 		Int("ssh_port", vm.SSHInfo.Port).
-		Msg("VM started successfully")
+		Msg("VM started successfully, initializing...")
 
 	return nil
 }
@@ -422,8 +416,7 @@ func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
 		Msg("QEMU command arguments")
 
 	// Update VM state before running (in case we want to kill it)
-	vm.Status = "running"
-	// We can't set a real PID yet since the process hasn't started
+	vm.Status = VMStatusInitializing
 	vm.SaveState()
 
 	// Run QEMU in foreground
@@ -441,13 +434,14 @@ func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
 	err := cmd.Run()
 	if err != nil {
 		logger.Error().Err(err).Msg("QEMU exited with error")
-		vm.Status = "error"
+		vm.Status = VMStatusFailed
+		vm.LastError = err.Error()
 		vm.SaveState()
 		return err
 	}
 
 	// QEMU has exited
-	vm.Status = "stopped"
+	vm.Status = VMStatusStopped
 	vm.SaveState()
 
 	logger.Info().
@@ -457,36 +451,225 @@ func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
 	return nil
 }
 
+// WaitForInitialization waits for VM initialization to complete
+func (m *LocalManager) WaitForInitialization(ctx context.Context, vm *VM) error {
+	logger := zerolog.Ctx(ctx)
+	logger.Info().Str("name", vm.Config.Name).Msg("Waiting for VM initialization")
+
+	// Check if the VM is running
+	if vm.GetStatus() != VMStatusInitializing && vm.GetStatus() != VMStatusStarted {
+		return errors.Errorf("VM is not initializing or running")
+	}
+
+	// Create a ticker for checking cloud-init logs
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	// Create a channel to signal cancellation
+	doneCh := make(chan struct{})
+
+	// Keep track of the last read position in the QEMU log file
+	var lastReadPos int64 = 0
+
+	// Start a goroutine to stream QEMU logs
+	go func() {
+		defer close(doneCh)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Open the QEMU log file
+				logFile, err := os.Open(vm.QEMULogPath())
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to open QEMU log file")
+					continue
+				}
+
+				// Get current file size
+				stat, err := logFile.Stat()
+				if err != nil {
+					logFile.Close()
+					logger.Warn().Err(err).Msg("Failed to get QEMU log file size")
+					continue
+				}
+
+				// If there's new content, read it
+				if stat.Size() > lastReadPos {
+					_, err = logFile.Seek(lastReadPos, 0)
+					if err != nil {
+						logFile.Close()
+						logger.Warn().Err(err).Msg("Failed to seek in QEMU log file")
+						continue
+					}
+
+					buffer := make([]byte, stat.Size()-lastReadPos)
+					n, err := logFile.Read(buffer)
+					logFile.Close()
+
+					if err != nil && err != io.EOF {
+						logger.Warn().Err(err).Msg("Failed to read QEMU log file")
+						continue
+					}
+
+					if n > 0 {
+						fmt.Print(string(buffer[:n]))
+						lastReadPos += int64(n)
+					}
+				} else {
+					logFile.Close()
+				}
+			}
+		}
+	}()
+
+	// Wait for SSH to become available
+	sshClient, err := vm.WaitForSSH(ctx, 300) // 5 minute timeout
+	if err != nil {
+		// Wait for log streaming to finish
+		<-doneCh
+
+		logger.Error().Err(err).Msg("Failed to connect to VM via SSH")
+		vm.Status = VMStatusFailed
+		vm.LastError = fmt.Sprintf("Failed to connect via SSH: %v", err)
+		vm.SaveState()
+		return errors.Errorf("waiting for SSH: %w", err)
+	}
+	defer sshClient.Close()
+
+	// Check if cloud-init has completed
+	fmt.Println("\nVM is up, checking cloud-init status...")
+	for i := 0; i < 60; i++ { // Try for up to 5 minutes (5 seconds * 60)
+		if ctx.Err() != nil {
+			// Wait for log streaming to finish
+			<-doneCh
+
+			// Context was canceled
+			vm.Status = VMStatusFailed
+			vm.LastError = "Initialization canceled by user"
+			vm.SaveState()
+			return errors.Errorf("initialization canceled: %w", ctx.Err())
+		}
+
+		logger.Debug().Str("name", vm.Config.Name).Int("attempt", i+1).Msg("Checking cloud-init status")
+
+		cmd := "cloud-init status --wait || echo 'cloud-init-failed'"
+		output, err := vm.RunCommand(ctx, cmd)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to check cloud-init status, retrying...")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Show the cloud-init status output to the user
+		fmt.Printf("Cloud-init status: %s\n", strings.TrimSpace(output))
+
+		// Check cloud-init status output
+		if strings.Contains(output, "done") {
+			logger.Info().Str("name", vm.Config.Name).Msg("Cloud-init completed successfully")
+
+			// Fetch and display the cloud-init logs
+			logs, err := vm.RunCommand(ctx, "cat /var/log/cloud-init.log | tail -n 50")
+			if err == nil {
+				fmt.Println("\nCloud Init Logs (last 50 lines):")
+				fmt.Println(logs)
+			}
+
+			// Stop the VM since we're now fully initialized
+			if err := vm.Stop(); err != nil {
+				logger.Warn().Err(err).Msg("Failed to stop VM after initialization")
+			}
+
+			// Set status to ready
+			vm.Status = VMStatusReady
+			vm.SaveState()
+
+			// Wait for log streaming to finish
+			<-doneCh
+
+			return nil
+		} else if strings.Contains(output, "error") || strings.Contains(output, "cloud-init-failed") {
+			// Fetch and display the cloud-init logs
+			logs, err := vm.RunCommand(ctx, "cat /var/log/cloud-init.log | tail -n 100")
+			if err == nil {
+				fmt.Println("\nCloud Init Logs (last 100 lines):")
+				fmt.Println(logs)
+			}
+
+			vm.Status = VMStatusFailed
+			vm.LastError = fmt.Sprintf("Cloud-init failed: %s", output)
+			vm.SaveState()
+			logger.Error().Str("name", vm.Config.Name).Str("output", output).Msg("Cloud-init failed")
+
+			// Wait for log streaming to finish
+			<-doneCh
+
+			return errors.Errorf("cloud-init failed: %s", output)
+		}
+
+		logger.Debug().Str("name", vm.Config.Name).Str("output", output).Msg("Cloud-init still running")
+		time.Sleep(5 * time.Second)
+	}
+
+	// If we get here, cloud-init didn't complete within the timeout
+	// Fetch and display the cloud-init logs
+	logs, err := vm.RunCommand(ctx, "cat /var/log/cloud-init.log | tail -n 100")
+	if err == nil {
+		fmt.Println("\nCloud Init Logs (last 100 lines):")
+		fmt.Println(logs)
+	}
+
+	vm.Status = VMStatusFailed
+	vm.LastError = "Cloud-init initialization timed out"
+	vm.SaveState()
+
+	// Wait for log streaming to finish
+	<-doneCh
+
+	return errors.Errorf("cloud-init initialization timed out")
+}
+
 // StopVM stops a running VM
-// func (m *LocalManager) StopVM(ctx context.Context, vm *VM) error {
-// 	logger := zerolog.Ctx(ctx)
-// 	logger.Info().Str("name", vm.Config.Name).Msg("Stopping VM")
+func (m *LocalManager) StopVM(ctx context.Context, vm *VM) error {
+	logger := zerolog.Ctx(ctx)
+	logger.Info().Str("name", vm.Config.Name).Msg("Stopping VM")
 
-// 	if vm.internalState != "running" {
-// 		return errors.Errorf("VM is not running")
-// 	}
+	if vm.GetStatus() != VMStatusStarted && vm.GetStatus() != VMStatusInitializing {
+		return errors.Errorf("VM is not running or initializing")
+	}
 
-// 	vm.internalState = "stopping"
+	if err := vm.Stop(); err != nil {
+		return errors.Errorf("stopping VM: %w", err)
+	}
 
-// 	if err := vm.Stop(); err != nil {
-// 		return errors.Errorf("stopping VM: %w", err)
-// 	}
+	// If the VM was in initialized state before, keep it as "ready"
+	// rather than "stopped"
+	if vm.Status == VMStatusInitializing {
+		vm.Status = VMStatusFailed
+	} else {
+		vm.Status = VMStatusStopped
+	}
 
-// 	vm.internalState = "stopped"
+	vm.SaveState()
 
-// 	return nil
-// }
+	return nil
+}
 
 // DeleteVM deletes a VM and its associated resources
 func (m *LocalManager) DeleteVM(ctx context.Context, vm *VM) error {
 	logger := zerolog.Ctx(ctx)
 	logger.Info().Str("name", vm.Config.Name).Msg("Deleting VM")
 
-	if vm.Status == "running" {
+	if vm.GetStatus() == VMStatusStarted || vm.GetStatus() == VMStatusInitializing {
 		if err := vm.Stop(); err != nil {
 			return errors.Errorf("stopping VM: %w", err)
 		}
 	}
+
+	// Mark as deleted first, in case anything fails during cleanup
+	vm.Status = VMStatusDeleted
+	vm.SaveState()
 
 	if err := os.RemoveAll(vm.Dir()); err != nil {
 		return errors.Errorf("removing VM directory: %w", err)

@@ -248,9 +248,19 @@ func (vm *VM) QEMULogPath() string {
 
 // Stop attempts to stop the VM process
 func (vm *VM) Stop() error {
-
 	if vm.PID <= 0 {
 		return errors.Errorf("invalid PID for VM: %d", vm.PID)
+	}
+
+	// Check if the process exists before trying to kill it
+	if !isProcessRunning(vm.PID) {
+		// Process is already gone, just update the status
+		if vm.Status == VMStatusInitializing {
+			vm.Status = VMStatusFailed
+		} else {
+			vm.Status = VMStatusStopped
+		}
+		return vm.SaveState()
 	}
 
 	process, err := os.FindProcess(vm.PID)
@@ -300,16 +310,25 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 
+	// First, try using the standard FindProcess approach
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
 
-	// On Unix systems, FindProcess always succeeds, so we need to send signal 0
-	// to check if the process exists. Signal 0 doesn't actually do anything to the
-	// process if it exists, it just checks if we have permission to send signals to it.
-	err = process.Signal(os.Signal(nil))
-	return err == nil
+	// Try to signal the process, but this can be unreliable on macOS
+	if err = process.Signal(os.Signal(nil)); err == nil {
+		return true
+	}
+
+	// Fallback: Check if the process exists using the 'ps' command
+	cmd := exec.Command("ps", "-p", strconv.Itoa(pid))
+	if err := cmd.Run(); err == nil {
+		// Process exists
+		return true
+	}
+
+	return false
 }
 
 // GetStatus dynamically checks the status of the VM rather than relying on saved state
@@ -356,9 +375,11 @@ func (vm *VM) GetStatus() string {
 		}
 	}
 
-	// No running processes found, but if we were in ready state, maintain it
-	if vm.Status == VMStatusReady {
-		return VMStatusReady
+	// No running processes found, but if the status is already set to "started"
+	// or "ready", maintain that status - this is important for VMs that started
+	// successfully and completed cloud-init, but don't have a detectable process
+	if vm.Status == VMStatusStarted || vm.Status == VMStatusReady {
+		return vm.Status
 	}
 
 	// Otherwise assume we're stopped
@@ -369,14 +390,3 @@ func (vm *VM) GetStatus() string {
 
 	return vm.Status
 }
-
-// VM status constants
-const (
-	VMStatusCreated      = "created"      // VM is created but not yet initialized
-	VMStatusInitializing = "initializing" // VM is starting up and cloud-init is running
-	VMStatusReady        = "ready"        // VM has been initialized successfully but is not running
-	VMStatusStarted      = "started"      // VM is running
-	VMStatusStopped      = "stopped"      // VM is stopped
-	VMStatusFailed       = "failed"       // VM initialization failed
-	VMStatusDeleted      = "deleted"      // VM is marked for deletion
-)

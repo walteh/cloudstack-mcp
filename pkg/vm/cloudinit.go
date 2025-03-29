@@ -2,13 +2,20 @@ package vm
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gitlab.com/tozd/go/errors"
 )
+
+// Initialize random number generator
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 // GenerateMetaData generates the cloud-init meta-data for this VM
 func (vm *VM) BuildMetaData() (string, error) {
@@ -37,10 +44,29 @@ func (vm *VM) UserData(withKvm bool) (string, error) {
 		return "", errors.Errorf("getting user home directory: %w", err)
 	}
 
-	sshPubKeyPath := filepath.Join(homeDir, ".ssh", "walteh.git.pub")
-	sshPubKey, err := os.ReadFile(sshPubKeyPath)
-	if err != nil {
-		return "", errors.Errorf("reading SSH public key: %w", err)
+	// Look for multiple SSH public key locations
+	sshPubKeyPaths := []string{
+		filepath.Join(homeDir, ".ssh", "walteh.git.pub"),
+		filepath.Join(homeDir, ".ssh", "id_rsa.pub"),
+		filepath.Join(homeDir, ".ssh", "id_ed25519.pub"),
+		filepath.Join(homeDir, ".ssh", "id_ecdsa.pub"),
+	}
+
+	var sshPubKey []byte
+	var foundKey bool
+
+	for _, keyPath := range sshPubKeyPaths {
+		if _, err := os.Stat(keyPath); err == nil {
+			sshPubKey, err = os.ReadFile(keyPath)
+			if err == nil && len(sshPubKey) > 0 {
+				foundKey = true
+				break
+			}
+		}
+	}
+
+	if !foundKey {
+		return "", errors.Errorf("no SSH public key found in ~/.ssh directory, please generate one with 'ssh-keygen'")
 	}
 
 	var kvmPackages, kvmCommands string
@@ -60,10 +86,52 @@ func (vm *VM) UserData(withKvm bool) (string, error) {
 `
 	}
 
-	// Create cloud-init user-data
+	// Store SSH key in metadata for reference
+	vm.MetaData["ssh_pubkey"] = strings.TrimSpace(string(sshPubKey))
+
+	// Create cloud-init user-data with explicit SSH key configuration
 	userData := fmt.Sprintf(`#cloud-config
-ssh_authorized_keys:
-  - %s
+
+# Ensure SSH key setup is handled properly
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: users, admin, sudo
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - %s
+
+# Disable password authentication
+ssh_pwauth: false
+
+# Disable password expiry
+chpasswd:
+  expire: false
+  
+# Always run ssh configuration module
+cloud_init_modules:
+ - migrator
+ - bootcmd
+ - write-files
+ - growpart
+ - resizefs
+ - set_hostname
+ - update_hostname
+ - update_etc_hosts
+ - users-groups
+ - ssh
+
+# Enable debugging for cloud-init
+debug:
+  verbose: true
+
+# Write cloud-init logs to console for visibility
+output: {all: '| tee -a /dev/console /var/log/cloud-init-verbose.log'}
+
+# Make cloud-init logging more verbose
+cloud_init:
+  log_level: DEBUG
+  log_file: /var/log/cloud-init-debug.log
 
 package_update: true
 package_upgrade: true
@@ -83,14 +151,53 @@ write_files:
   - path: /etc/modules-load.d/cloud-init.conf
     content: |
       br_netfilter
-
+  - path: /etc/ssh/sshd_config.d/99-cloudstack-mcp.conf
+    content: |
+      # Allow SSH key authentication
+      PubkeyAuthentication yes
+      AuthorizedKeysFile .ssh/authorized_keys
+      PasswordAuthentication no
+      ChallengeResponseAuthentication no
+  - path: /etc/cloud/cloud.cfg.d/99_ssh.cfg
+    content: |
+      ssh_deletekeys: false
+      ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
+      ssh:
+        emit_keys_to_console: true
+  - path: /etc/cloud/cloud.cfg.d/05_logging.cfg
+    content: |
+      output: {all: '| tee -a /dev/console /var/log/cloud-init-verbose.log'}
+  
 runcmd:
   - sysctl -p /etc/sysctl.d/50-vip-arp.conf
   - modprobe br_netfilter
+  - mkdir -p /home/ubuntu/.ssh
+  - echo "%s" > /home/ubuntu/.ssh/authorized_keys
+  - chmod 600 /home/ubuntu/.ssh/authorized_keys
+  - chmod 700 /home/ubuntu/.ssh
+  - chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+  - systemctl restart sshd
+  - echo "SSH_DEBUG: Public key is: $(cat /home/ubuntu/.ssh/authorized_keys)" > /var/log/ssh_debug.log 
+  - echo "SSH_DEBUG: User exists: $(getent passwd ubuntu)" >> /var/log/ssh_debug.log
+  - ls -la /home/ubuntu/.ssh >> /var/log/ssh_debug.log
+  - systemctl status sshd >> /var/log/ssh_debug.log
+  - cp /var/log/cloud-init*.log /var/log/cloud-init-output.log /dev/console || true
+  - journalctl -u cloud-init* > /var/log/cloud-init-journal.log || true
+  - echo "CLOUD_INIT_DEBUG: Completed user-data execution" > /var/log/cloud-init-complete.log
 %s
-`, strings.TrimSpace(string(sshPubKey)), kvmPackages, kvmCommands)
+`, strings.TrimSpace(string(sshPubKey)), kvmPackages, strings.TrimSpace(string(sshPubKey)), kvmCommands)
 
 	return userData, nil
+}
+
+// generateRandomPassword generates a random password for VM access
+func generateRandomPassword(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(result)
 }
 
 // // generateControlPlaneUserData generates cloud-init user-data for Kubernetes control plane nodes

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"gitlab.com/tozd/go/errors"
@@ -78,15 +79,9 @@ func (vm *VM) createSSHConfig() (*ssh.ClientConfig, error) {
 			}
 		}
 
-		// If no private key was found, we'll try agent auth later
+		// If no private key was found, we'll try SSH agent
 		if !keyFound {
-			// Use password authentication as fallback
-			if vm.SSHInfo.Password != "" {
-				authMethods = append(authMethods, ssh.Password(vm.SSHInfo.Password))
-			} else {
-				// Try using empty password
-				authMethods = append(authMethods, ssh.Password(""))
-			}
+			return nil, errors.Errorf("no SSH keys found for authentication")
 		}
 	}
 
@@ -235,6 +230,10 @@ func (vm *VM) WaitForSSH(ctx context.Context, timeoutSeconds int) (*ssh.Client, 
 
 	address := fmt.Sprintf("%s:%d", vm.SSHInfo.Host, vm.SSHInfo.Port)
 	var client *ssh.Client
+	var lastError error
+	attempts := 0
+
+	fmt.Printf("Attempting SSH connection to %s...\n", address)
 
 	// Try to connect until success or timeout
 	for {
@@ -242,15 +241,39 @@ func (vm *VM) WaitForSSH(ctx context.Context, timeoutSeconds int) (*ssh.Client, 
 		case <-ctx.Done():
 			return nil, errors.Errorf("context canceled while waiting for SSH: %w", ctx.Err())
 		case <-timeout:
-			return nil, errors.Errorf("timed out waiting for SSH connection")
+			errDetails := ""
+			if lastError != nil {
+				errDetails = fmt.Sprintf(" Last error: %v", lastError)
+			}
+			return nil, errors.Errorf("timed out waiting for SSH connection after %d attempts.%s", attempts, errDetails)
 		case <-ticker.C:
+			attempts++
+			fmt.Printf("SSH connection attempt %d to %s...\n", attempts, address)
+
 			var dialErr error
 			client, dialErr = ssh.Dial("tcp", address, config)
 			if dialErr == nil {
 				// Successfully connected
+				fmt.Printf("SSH connection established successfully after %d attempts\n", attempts)
 				return client, nil
 			}
-			// Keep trying
+
+			// Store the last error for diagnostics
+			lastError = dialErr
+
+			// Log more detailed error information
+			if attempts%5 == 0 { // Log detailed error every 5 attempts
+				errorType := "unknown error"
+				if _, ok := dialErr.(*net.OpError); ok {
+					errorType = "network error (connection refused/timeout)"
+				} else if strings.Contains(dialErr.Error(), "auth") || strings.Contains(dialErr.Error(), "authentication") {
+					errorType = "authentication error"
+				} else if strings.Contains(dialErr.Error(), "handshake") {
+					errorType = "SSH handshake error"
+				}
+
+				fmt.Printf("SSH connection failed (attempt %d): %s - %v\n", attempts, errorType, dialErr)
+			}
 		}
 	}
 }
@@ -355,4 +378,21 @@ func (vm *VM) ExecCommand(command string) (string, error) {
 	}
 
 	return string(output), nil
+}
+
+// ConnectSSH creates an SSH client connection to the VM
+func (vm *VM) ConnectSSH() (*ssh.Client, error) {
+	// Create SSH config
+	config, err := vm.createSSHConfig()
+	if err != nil {
+		return nil, errors.Errorf("creating SSH config: %w", err)
+	}
+
+	address := fmt.Sprintf("%s:%d", vm.SSHInfo.Host, vm.SSHInfo.Port)
+	client, err := ssh.Dial("tcp", address, config)
+	if err != nil {
+		return nil, errors.Errorf("connecting to SSH: %w", err)
+	}
+
+	return client, nil
 }

@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/walteh/cloudstack-mcp/cmd/vmctl/commands"
+	"github.com/walteh/cloudstack-mcp/pkg/vm"
+	"gitlab.com/tozd/go/errors"
 )
 
 func main() {
@@ -49,6 +51,12 @@ func setLoggingToContextInPreRun(cmd *cobra.Command, args []string) error {
 
 	ctx := zerolog.Ctx(cmd.Context()).With().Str("command", cmd.Name()).Logger().Level(level).WithContext(cmd.Context())
 	cmd.SetContext(ctx)
+
+	manager, err := vm.NewLocalManager()
+	if err != nil {
+		return errors.Errorf("creating VM manager: %w", err)
+	}
+	commands.Manager = manager
 
 	return nil
 }

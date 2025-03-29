@@ -46,10 +46,10 @@ type LocalManager struct {
 func NewLocalManager() (*LocalManager, error) {
 
 	// Find required executables
-	qemuPath, err := exec.LookPath("qemu-system-x86_64")
+	qemuPath, err := exec.LookPath("qemu-system-aarch64")
 	if err != nil {
 		// Try ARM architecture
-		qemuPath, err = exec.LookPath("qemu-system-aarch64")
+		qemuPath, err = exec.LookPath("qemu-system-x86_64")
 		if err != nil {
 			return nil, errors.Errorf("finding qemu executable: %w", err)
 		}
@@ -71,10 +71,6 @@ func NewLocalManager() (*LocalManager, error) {
 		QemuImgPath: qemuImgPath,
 	}, nil
 }
-
-const (
-	diskName = "disk.img"
-)
 
 // CreateVM creates a new VM with the given configuration
 func (m *LocalManager) CreateVM(ctx context.Context, config VMConfig) (*VM, error) {

@@ -68,6 +68,8 @@ func run(ctx context.Context) error {
 
 	// Process command
 	switch command {
+	case "help":
+		return printHelp()
 	case "list-images":
 		return listImages(ctx, manager)
 	case "download-image":
@@ -80,6 +82,23 @@ func run(ctx context.Context) error {
 			return errors.Errorf("usage: create-vm <name> <image-name>")
 		}
 		return createVM(ctx, manager, subArgs[0], subArgs[1])
+	case "create-template":
+		if len(subArgs) < 3 {
+			return errors.Errorf("usage: create-template <name> <description> <base-image> [packages...]")
+		}
+		return createTemplate(ctx, manager, subArgs[0], subArgs[1], subArgs[2], subArgs[3:])
+	case "list-templates":
+		return listTemplates(ctx, manager)
+	case "delete-template":
+		if len(subArgs) < 1 {
+			return errors.Errorf("usage: delete-template <name>")
+		}
+		return deleteTemplate(ctx, manager, subArgs[0])
+	case "create-vm-from-template":
+		if len(subArgs) < 2 {
+			return errors.Errorf("usage: create-vm-from-template <vm-name> <template-name>")
+		}
+		return createVMFromTemplate(ctx, manager, subArgs[0], subArgs[1])
 	case "start-vm":
 		if len(subArgs) < 1 {
 			return errors.Errorf("usage: start-vm <name>")
@@ -279,5 +298,134 @@ func execVM(ctx context.Context, manager *vm.LocalManager, name, command string)
 
 	fmt.Println("Output:")
 	fmt.Println(output)
+	return nil
+}
+
+// Template management commands
+
+func createTemplate(ctx context.Context, manager *vm.LocalManager, name, description, baseImage string, packages []string) error {
+	fmt.Printf("Creating template %s from base image %s...\n", name, baseImage)
+
+	// Create setupScript to install KVM
+	setupScript := `#!/bin/bash
+echo "Setting up KVM environment..."
+# Additional setup commands can be added here
+echo "Setup completed!"
+`
+
+	// Create the template
+	template, err := manager.CreateTemplate(ctx, name, description, baseImage, packages, setupScript)
+	if err != nil {
+		return errors.Errorf("creating template: %w", err)
+	}
+
+	fmt.Printf("Template %s created with status: %s\n", template.Name, template.Status)
+
+	// Prepare the template (creating temporary VM, installing packages, etc.)
+	fmt.Printf("Preparing template %s (this may take several minutes)...\n", name)
+	if err := manager.PrepareTemplate(ctx, template); err != nil {
+		return errors.Errorf("preparing template: %w", err)
+	}
+
+	fmt.Printf("Template %s successfully prepared and ready to use\n", name)
+	return nil
+}
+
+func listTemplates(ctx context.Context, manager *vm.LocalManager) error {
+	templates, err := manager.ListTemplates(ctx)
+	if err != nil {
+		return errors.Errorf("listing templates: %w", err)
+	}
+
+	fmt.Println("Available Templates:")
+	for _, template := range templates {
+		fmt.Printf("  - %s (%s)\n    Status: %s\n    Created: %s\n    Description: %s\n",
+			template.Name,
+			template.BasePath,
+			template.Status,
+			template.CreatedAt.Format("2006-01-02 15:04:05"),
+			template.Description)
+	}
+
+	return nil
+}
+
+func deleteTemplate(ctx context.Context, manager *vm.LocalManager, name string) error {
+	template, err := manager.GetTemplate(ctx, name)
+	if err != nil {
+		return errors.Errorf("getting template: %w", err)
+	}
+
+	if err := manager.DeleteTemplate(ctx, template); err != nil {
+		return errors.Errorf("deleting template: %w", err)
+	}
+
+	fmt.Printf("Template %s deleted successfully\n", name)
+	return nil
+}
+
+func createVMFromTemplate(ctx context.Context, manager *vm.LocalManager, vmName, templateName string) error {
+	template, err := manager.GetTemplate(ctx, templateName)
+	if err != nil {
+		return errors.Errorf("getting template: %w", err)
+	}
+
+	if template.Status != "ready" {
+		return errors.Errorf("template %s is not ready (status: %s)", templateName, template.Status)
+	}
+
+	// Generate user data for the VM
+	userData := fmt.Sprintf(`#cloud-config
+hostname: %s
+`, vmName)
+
+	// Create VM from template
+	createdVM, err := manager.CreateVMFromTemplate(ctx, vmName, template, userData)
+	if err != nil {
+		return errors.Errorf("creating VM from template: %w", err)
+	}
+
+	fmt.Printf("VM %s created successfully from template %s\n", vmName, templateName)
+
+	// Start VM automatically
+	if err := manager.StartVM(ctx, createdVM); err != nil {
+		return errors.Errorf("starting VM: %w", err)
+	}
+
+	fmt.Printf("VM %s started successfully\n", vmName)
+	return nil
+}
+
+// printHelp displays usage information for the vmctl command
+func printHelp() error {
+	helpText := `CloudStack MCP VM Controller
+
+Usage: vmctl <command> [args...]
+
+Commands:
+  Image Management:
+    list-images                                        - List available VM images
+    download-image <name> <url>                        - Download a VM image
+
+  VM Management:
+    create-vm <name> <image-name>                      - Create and start a new VM
+    start-vm <name>                                    - Start a VM
+    foreground-start-vm <name>                         - Start a VM in foreground mode
+    stop-vm <name>                                     - Stop a VM
+    delete-vm <name>                                   - Delete a VM
+    list-vms                                           - List all VMs
+    shell <name>                                       - Open a shell to a VM
+    exec <name> <command>                              - Execute a command on a VM
+
+  Template Management:
+    create-template <name> <desc> <base-img> [pkgs...] - Create a VM template
+    list-templates                                     - List available templates
+    delete-template <name>                             - Delete a template
+    create-vm-from-template <vm> <template>            - Create a VM from template
+
+  Other:
+    help                                               - Show this help message
+`
+	fmt.Print(helpText)
 	return nil
 }

@@ -77,3 +77,21 @@ func GetEFIPath(arch string) string {
 		return "/opt/homebrew/share/qemu/edk2-aarch64-code.fd" // Default for ARM64
 	}
 }
+
+// GetCPUType returns the appropriate CPU type for the architecture and platform
+func GetCPUType(arch string, isAppleSilicon bool) string {
+	switch arch {
+	case "aarch64":
+		if isAppleSilicon {
+			return "host"
+		}
+		return "cortex-a72"
+	case "x86_64":
+		if isAppleSilicon {
+			return "qemu64" // Basic emulation on Apple Silicon
+		}
+		return "host"
+	default:
+		return "host" // Default for ARM64 on Macs
+	}
+}

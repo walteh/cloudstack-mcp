@@ -174,7 +174,7 @@ runcmd:
 	}
 
 	// Start the VM and wait for it to complete setup
-	err = m.StartVM(ctx, tempVM)
+	err = tempVM.Start(ctx, m.TmuxManager)
 	if err != nil {
 		template.Status = "error"
 		template.MetaData["error"] = err.Error()
@@ -192,9 +192,11 @@ runcmd:
 	time.Sleep(5 * time.Minute)
 
 	// Stop the VM if it's still running
-	if tempVM.GetStatus() == "running" {
+	if isRunning, err := VMIsRunning(ctx, m.TmuxManager, tempVM); err != nil {
+		logger.Warn().Err(err).Str("name", tempVM.Name).Msg("Failed to check if VM is running")
+	} else if isRunning {
 		logger.Info().Msg("Stopping the temporary VM...")
-		err := tempVM.Stop()
+		err := tempVM.Stop(ctx, m.TmuxManager)
 		if err != nil {
 			template.Status = "error"
 			template.MetaData["error"] = err.Error()
@@ -357,7 +359,6 @@ func (m *LocalManager) CreateVMFromTemplate(ctx context.Context, vmName string, 
 	// Create VM object
 	vm := &VM{
 		Name:   vmName,
-		Status: "created",
 		Config: vmConfig,
 		SSHInfo: SSHInfo{
 			Username: "ubuntu", // Default for Ubuntu cloud images

@@ -70,6 +70,51 @@ task cloudstack:setup
 task run:server
 ```
 
+## VM Management with Tmux
+
+CloudStack MCP includes tmux integration for better VM management. This feature provides an enhanced terminal experience with persistent sessions and organized VM management.
+
+### Setting up Tmux Support
+
+To install tmux and required dependencies:
+
+```bash
+./scripts/setup-tmux.sh
+```
+
+### Tmux-enabled Commands
+
+-   `vmctl start-vm <name>` - Start a VM and create a tmux window for it
+-   `vmctl attach <name>` - Attach to the tmux session to manage your VMs
+-   `vmctl shell <name>` - Open a shell in a VM's tmux window
+-   `vmctl exec <name> <cmd>` - Run a command in a VM's tmux window
+
+### Features
+
+-   **Single Session Management**: All VMs are managed in a single "kvmctl" tmux session
+-   **Window-based Organization**: Each VM gets its own dedicated window
+-   **Persistent Sessions**: VM sessions remain active even when detached
+-   **Easy Navigation**: Switch between VM windows using tmux shortcuts
+-   **Visual Separation**: Each VM has its own isolated window
+
+### Usage Example
+
+```bash
+# Start a VM with tmux integration
+vmctl start-vm my-vm
+
+# Attach to the tmux session to manage all your VMs
+vmctl attach
+
+# Run a command on the VM
+vmctl exec my-vm "ls -la"
+
+# Open an interactive shell on the VM
+vmctl shell my-vm
+```
+
+When attached to the tmux session, you can navigate between VM windows using standard tmux commands like `Ctrl+b n` (next window) and `Ctrl+b p` (previous window).
+
 ## Configuration
 
 The MCP server can be configured through environment variables or command-line flags:

@@ -153,7 +153,7 @@ hostname: %s
 	fmt.Printf("VM %s created successfully from template %s\n", vmName, templateName)
 
 	// Start VM automatically
-	if err := Manager.StartVM(ctx, createdVM); err != nil {
+	if err := createdVM.Start(ctx, Manager.TmuxManager); err != nil {
 		return errors.Errorf("starting VM: %w", err)
 	}
 

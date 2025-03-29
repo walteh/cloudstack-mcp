@@ -2,17 +2,25 @@ package vm
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/walteh/cloudstack-mcp/pkg/tmux"
 	"gitlab.com/tozd/go/errors"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 // findAvailablePort finds an available TCP port to use
@@ -37,53 +45,30 @@ func findAvailablePort() (int, error) {
 func (vm *VM) createSSHConfig() (*ssh.ClientConfig, error) {
 	authMethods := []ssh.AuthMethod{}
 
-	// If we have a private key in the VM config, use it
-	if vm.SSHInfo.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(vm.SSHInfo.PrivateKey))
-		if err != nil {
-			return nil, errors.Errorf("parsing private key: %w", err)
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	} else {
-		// Check for all possible keys, including walteh and mcverse specific keys
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return nil, errors.Errorf("getting user home directory: %w", err)
-		}
+	// Try the walteh and mcverse keys first
+	keyPaths := []string{
+		"walteh.git",
+	}
 
-		// Try the walteh and mcverse keys first
-		keyPaths := []string{
-			filepath.Join(homeDir, ".ssh", "walteh.git"),
-			filepath.Join(homeDir, ".ssh", "mcverse-org.git"),
-			filepath.Join(homeDir, ".ssh", "id_rsa"),
-			filepath.Join(homeDir, ".ssh", "id_ed25519"),
-			filepath.Join(homeDir, ".ssh", "id_ecdsa"),
-		}
+	signers, err := getSSHAgentSigners()
+	if err != nil {
+		return nil, errors.Errorf("getting SSH agent signers: %w", err)
+	}
 
-		keyFound := false
+	for _, signer := range signers {
+		pubKey := signer.PublicKey()
 		for _, keyPath := range keyPaths {
-			if _, err := os.Stat(keyPath); err == nil {
-				keyData, err := os.ReadFile(keyPath)
-				if err != nil {
-					continue
-				}
-
-				signer, err := ssh.ParsePrivateKey(keyData)
-				if err != nil {
-					continue
-				}
-
+			if strings.Contains(string(pubKey.Marshal()), keyPath) {
 				authMethods = append(authMethods, ssh.PublicKeys(signer))
-				keyFound = true
 				break
 			}
 		}
-
-		// If no private key was found, we'll try SSH agent
-		if !keyFound {
-			return nil, errors.Errorf("no SSH keys found for authentication")
-		}
 	}
+
+	// for _, signer := range signers {
+	// 	if strings.Contains(signer
+	// 	authMethods = append(authMethods, ssh.PublicKeys(signer))
+	// }
 
 	// Ensure username is set
 	if vm.SSHInfo.Username == "" {
@@ -99,10 +84,56 @@ func (vm *VM) createSSHConfig() (*ssh.ClientConfig, error) {
 	}, nil
 }
 
+func getSSHAgentSigners() ([]ssh.Signer, error) {
+	// Get the SSH agent socket from the environment.
+	sock := os.Getenv("SSH_AUTH_SOCK")
+	if sock == "" {
+		return nil, errors.Errorf("SSH_AUTH_SOCK not found")
+	}
+
+	// Connect to the SSH agent.
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		return nil, errors.Errorf("failed to connect to SSH agent: %w", err)
+	}
+
+	// Create a new agent client.
+	ag := agent.NewClient(conn)
+
+	// Retrieve all available signers from the agent.
+	signers, err := ag.Signers()
+	if err != nil {
+		conn.Close()
+		return nil, errors.Errorf("failed to retrieve signers: %w", err)
+	}
+
+	// kill the connection on signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		conn.Close()
+	}()
+
+	// // Create an SSH client configuration using the agent's signers.
+	// config := &ssh.ClientConfig{
+	// 	User: "your_username",
+	// 	Auth: []ssh.AuthMethod{
+	// 		ssh.PublicKeys(signers...),
+	// 	},
+	// 	// Replace this with a proper host key callback in production.
+	// 	HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	// }
+
+	return signers, nil
+}
+
 // connectToVM establishes an SSH connection to the VM
-func (vm *VM) connectToVM() (*ssh.Client, error) {
+func (vm *VM) connectToVM(ctx context.Context, mgr *tmux.SessionManager) (*ssh.Client, error) {
 	// Check if the VM is running
-	if vm.GetStatus() != "running" {
+	if isRunning, err := VMIsRunning(ctx, mgr, vm); err != nil {
+		return nil, errors.Errorf("checking if VM is running: %w", err)
+	} else if !isRunning {
 		return nil, errors.Errorf("VM is not running")
 	}
 
@@ -142,12 +173,14 @@ func (vm *VM) connectToVM() (*ssh.Client, error) {
 }
 
 // ExecShell opens an interactive shell to the VM via SSH
-func (vm *VM) ExecShell() error {
+func (vm *VM) ExecShell(ctx context.Context, mgr *tmux.SessionManager) error {
 	// Since we can't easily create an interactive shell with the crypto/ssh package,
 	// we'll use the command-line ssh as a fallback for this specific use case
 
 	// Check if the VM is running
-	if vm.GetStatus() != "running" {
+	if isRunning, err := VMIsRunning(ctx, mgr, vm); err != nil {
+		return errors.Errorf("checking if VM is running: %w", err)
+	} else if !isRunning {
 		return errors.Errorf("VM is not running")
 	}
 
@@ -310,9 +343,11 @@ func (vm *VM) RunCommand(ctx context.Context, command string) (string, error) {
 
 // ExecCommand executes a command on the VM via SSH and returns the output
 // This is a simpler version that uses the ssh command-line client
-func (vm *VM) ExecCommand(command string) (string, error) {
+func (vm *VM) ExecCommand(ctx context.Context, mgr *tmux.SessionManager, command string) (string, error) {
 	// Check if the VM is running
-	if vm.GetStatus() != "running" {
+	if isRunning, err := VMIsRunning(ctx, mgr, vm); err != nil {
+		return "", errors.Errorf("checking if VM is running: %w", err)
+	} else if !isRunning {
 		return "", errors.Errorf("VM is not running")
 	}
 
@@ -381,18 +416,39 @@ func (vm *VM) ExecCommand(command string) (string, error) {
 }
 
 // ConnectSSH creates an SSH client connection to the VM
-func (vm *VM) ConnectSSH() (*ssh.Client, error) {
-	// Create SSH config
-	config, err := vm.createSSHConfig()
-	if err != nil {
-		return nil, errors.Errorf("creating SSH config: %w", err)
-	}
+func (vm *VM) ConnectSSH(ctx context.Context, mgr *tmux.SessionManager) (*ssh.Client, error) {
 
-	address := fmt.Sprintf("%s:%d", vm.SSHInfo.Host, vm.SSHInfo.Port)
-	client, err := ssh.Dial("tcp", address, config)
+	client, err := vm.connectToVM(ctx, mgr)
 	if err != nil {
 		return nil, errors.Errorf("connecting to SSH: %w", err)
 	}
 
 	return client, nil
+}
+
+// GenerateSSHKey generates a new SSH key pair
+func GenerateSSHKey() (string, string, error) {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", errors.Errorf("generating RSA key: %w", err)
+	}
+
+	// Convert private key to PEM format
+	privateKeyPEM := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	}
+	privateKeyStr := string(pem.EncodeToMemory(privateKeyPEM))
+
+	// Generate public key
+	publicKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return "", "", errors.Errorf("generating SSH public key: %w", err)
+	}
+
+	// Convert public key to authorized_keys format
+	publicKeyStr := fmt.Sprintf("%s\n", string(ssh.MarshalAuthorizedKey(publicKey)))
+
+	return publicKeyStr, privateKeyStr, nil
 }

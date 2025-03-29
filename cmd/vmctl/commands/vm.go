@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/walteh/cloudstack-mcp/pkg/vm"
@@ -24,12 +22,13 @@ func init() {
 	rootCmd.AddCommand(listVMsCmd)
 	rootCmd.AddCommand(createVMCmd)
 	rootCmd.AddCommand(startVMCmd)
-	rootCmd.AddCommand(startVMForegroundCmd)
 	rootCmd.AddCommand(stopVMCmd)
 	rootCmd.AddCommand(deleteVMCmd)
 	rootCmd.AddCommand(shellVMCmd)
 	rootCmd.AddCommand(execVMCmd)
 	rootCmd.AddCommand(cleanupVMsCmd)
+	rootCmd.AddCommand(attachVMCmd)
+	rootCmd.AddCommand(tmuxCleanupCmd)
 }
 
 // listVMsCmd represents the list-vms command
@@ -69,35 +68,9 @@ var startVMCmd = &cobra.Command{
 	Long:  `Start a virtual machine in the background.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		visible, _ := cmd.Flags().GetBool("visible")
-		showLogs, _ := cmd.Flags().GetBool("logs")
-		noLogs, _ := cmd.Flags().GetBool("no-logs")
-
-		// Default to showing logs unless --no-logs is specified
-		showLogs = !noLogs && (showLogs || !visible)
-
-		if showLogs {
-			// Show logs in current terminal
-			return startVMWithLogs(cmd.Context(), args[0])
-		} else if visible {
-			// Show logs in new terminal
-			return startVMVisible(cmd.Context(), args[0])
-		}
 
 		// Standard start without logs
 		return startVM(cmd.Context(), args[0])
-	},
-	GroupID: vmGroup.ID,
-}
-
-// startVMForegroundCmd represents the foreground-start-vm command
-var startVMForegroundCmd = &cobra.Command{
-	Use:   "foreground-start-vm <name>",
-	Short: "Start a VM in foreground",
-	Long:  `Start a virtual machine and keep it in the foreground.`,
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return startVMForeground(cmd.Context(), args[0])
 	},
 	GroupID: vmGroup.ID,
 }
@@ -161,6 +134,32 @@ var cleanupVMsCmd = &cobra.Command{
 	GroupID: vmGroup.ID,
 }
 
+// attachVMCmd represents the attach command
+var attachVMCmd = &cobra.Command{
+	Use:   "attach [n]",
+	Short: "Attach to the tmux session",
+	Long:  `Attach to the master tmux session to manage VMs. If a VM name is provided, selects that VM's window.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return attachVM(cmd.Context(), "")
+		}
+		return attachVM(cmd.Context(), args[0])
+	},
+	GroupID: vmGroup.ID,
+}
+
+// tmuxCleanupCmd represents the tmux-cleanup command
+var tmuxCleanupCmd = &cobra.Command{
+	Use:   "tmux-cleanup",
+	Short: "Clean up all tmux windows and sessions",
+	Long:  `Shut down all VM tmux windows and the master tmux session.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cleanupTmux(cmd.Context())
+	},
+	GroupID: vmGroup.ID,
+}
+
 // Implementation functions
 
 func listVMs(ctx context.Context) error {
@@ -170,23 +169,17 @@ func listVMs(ctx context.Context) error {
 	}
 
 	fmt.Println("Virtual Machines:")
-	for _, vm := range vms {
-		status := vm.GetStatus()
-		statusInfo := status
-
-		// Add more detailed status information
-		switch status {
-		case "initializing":
-			statusInfo = fmt.Sprintf("%s (Cloud-init running)", status)
-		case "ready":
-			statusInfo = fmt.Sprintf("%s (Ready to start)", status)
-		case "failed":
-			if vm.LastError != "" {
-				statusInfo = fmt.Sprintf("%s (%s)", status, vm.LastError)
-			}
+	for _, vmd := range vms {
+		isRunning, err := vm.VMIsRunning(ctx, Manager.TmuxManager, vmd)
+		if err != nil {
+			return errors.Errorf("checking if VM is running: %w", err)
+		}
+		statusInfo := "stopped"
+		if isRunning {
+			statusInfo = "running"
 		}
 
-		fmt.Printf("  - %s (Status: %s)\n", vm.Name, statusInfo)
+		fmt.Printf("  - %s (Status: %s)\n", vmd.Name, statusInfo)
 	}
 
 	return nil
@@ -235,342 +228,127 @@ func createVM(ctx context.Context, name, imgName string, visible bool, showLogs 
 		return errors.Errorf("creating VM: %w", err)
 	}
 
-	fmt.Printf("VM %s created successfully. Initializing VM...\n", name)
+	fmt.Printf("VM %s created successfully. Initializing VM... at MAC %s\n", createdVM.Name, createdVM.Config.Network.MAC)
 
-	// Start VM for initialization
-	if visible {
-		// Start VM in visible mode (new terminal window)
-		fmt.Printf("Starting VM %s in a new terminal window...\n", name)
-		if err := Manager.StartVMVisible(ctx, createdVM); err != nil {
-			// If context was canceled, we need to clean up
-			if ctx.Err() != nil {
-				fmt.Println("VM creation canceled, cleaning up...")
-				cleanupCanceledVM(context.Background(), createdVM)
-				return ctx.Err()
-			}
-			return errors.Errorf("starting VM in visible mode: %w", err)
-		}
-
-		fmt.Printf("VM %s is initializing in a separate terminal window.\n", name)
-		fmt.Println("You can connect to it using:")
-		fmt.Printf("  vmctl shell %s\n", name)
-
-		// Don't wait for initialization since the user can see the progress in the terminal window
-		return nil
-	} else if showLogs {
-		// Start VM with console logs in current terminal (direct QEMU log streaming)
-		fmt.Printf("Starting VM %s with direct console streaming...\n", name)
-
-		// First start the VM normally
-		if err := Manager.StartVM(ctx, createdVM); err != nil {
-			// If context was canceled, we need to clean up
-			if ctx.Err() != nil {
-				fmt.Println("VM creation canceled, cleaning up...")
-				cleanupCanceledVM(context.Background(), createdVM)
-				return ctx.Err()
-			}
-			return errors.Errorf("starting VM: %w", err)
-		}
-
-		// Then stream the QEMU logs directly (this will block until Ctrl+C or VM terminates)
-		bootSuccessful, err := Manager.StreamQEMULogs(ctx, createdVM)
-		if err != nil {
-			fmt.Printf("Warning: Log streaming ended with error: %v\n", err)
-		}
-
-		// Update VM status to ready only if boot was successful
-		if bootSuccessful {
-			createdVM.Status = vm.VMStatusStarted
-			if err := createdVM.SaveState(); err != nil {
-				fmt.Printf("Warning: Failed to update VM status to started: %v\n", err)
-			} else {
-				fmt.Printf("VM %s status updated to %s\n", name, vm.VMStatusStarted)
-			}
-		} else {
-			fmt.Printf("VM %s boot not detected as successful, status not updated\n", name)
-		}
-
-		fmt.Printf("\nVM %s is now ready to use.\n", name)
-		fmt.Println("You can connect to it using:")
-		fmt.Printf("  vmctl shell %s\n", name)
-
-		return nil
-	} else {
-		// This is now the non-default case, used when --no-logs is specified
-		fmt.Printf("Starting VM %s without log streaming (cloud-init logs hidden)...\n", name)
-
-		if err := Manager.StartVM(ctx, createdVM); err != nil {
-			// If context was canceled, we need to clean up
-			if ctx.Err() != nil {
-				fmt.Println("VM creation canceled, cleaning up...")
-				cleanupCanceledVM(context.Background(), createdVM)
-				return ctx.Err()
-			}
-			return errors.Errorf("starting VM: %w", err)
-		}
-
-		fmt.Printf("VM %s is starting, waiting for cloud-init to complete...\n", name)
-		fmt.Println("(Press Ctrl+C to cancel)")
-
-		// Wait for VM to complete initialization
-		err = Manager.WaitForInitialization(ctx, createdVM)
-
-		// If context was canceled, we need to clean up
-		if ctx.Err() != nil {
-			fmt.Println("VM initialization canceled, cleaning up...")
-			cleanupCanceledVM(context.Background(), createdVM)
-			return ctx.Err()
-		}
-
-		if err != nil {
-			fmt.Printf("VM %s failed to initialize: %v\n", name, err)
-			return err
-		}
-
-		fmt.Printf("VM %s initialized successfully and is now ready to use\n", name)
-		return nil
-	}
-}
-
-// Function to start a VM and stream logs in the current terminal
-func startVMWithLogs(ctx context.Context, name string) error {
-	vmd, err := Manager.GetVM(ctx, name)
-	if err != nil {
-		return errors.Errorf("getting VM: %w", err)
-	}
-
-	// Make sure the VM is in a state where it can be started
-	status := vmd.GetStatus()
-	if status != vm.VMStatusStopped && status != vm.VMStatusReady {
-		return errors.Errorf("VM is in state %s and cannot be started. VM must be in '%s' or '%s' state",
-			status, vm.VMStatusStopped, vm.VMStatusReady)
-	}
-
-	// First start the VM normally
-	fmt.Printf("Starting VM %s with direct console streaming...\n", name)
-	if err := Manager.StartVM(ctx, vmd); err != nil {
-		return errors.Errorf("starting VM: %w", err)
-	}
-
-	// Then stream QEMU logs directly (this will block until Ctrl+C or VM terminates)
-	bootSuccessful, err := Manager.StreamQEMULogs(ctx, vmd)
-	if err != nil {
-		fmt.Printf("Warning: Log streaming ended with error: %v\n", err)
-	}
-
-	// Update VM status to ready only if boot was successful
-	if bootSuccessful {
-		vmd.Status = vm.VMStatusStarted
-		if err := vmd.SaveState(); err != nil {
-			fmt.Printf("Warning: Failed to update VM status to started: %v\n", err)
-		} else {
-			fmt.Printf("VM %s status updated to %s\n", name, vm.VMStatusStarted)
-		}
-	} else {
-		fmt.Printf("VM %s boot not detected as successful, status not updated\n", name)
-	}
-
-	fmt.Printf("VM %s console streaming ended\n", name)
 	return nil
+
+	// // Start VM for initialization
+	// if visible {
+	// 	// Start VM in visible mode (new terminal window)
+	// 	fmt.Printf("Starting VM %s in a new terminal window...\n", name)
+	// 	if err := Manager.StartVMVisible(ctx, createdVM); err != nil {
+	// 		// If context was canceled, we need to clean up
+	// 		if ctx.Err() != nil {
+	// 			fmt.Println("VM creation canceled, cleaning up...")
+	// 			cleanupCanceledVM(context.Background(), createdVM)
+	// 			return ctx.Err()
+	// 		}
+	// 		return errors.Errorf("starting VM in visible mode: %w", err)
+	// 	}
+
+	// 	fmt.Printf("VM %s is initializing in a separate terminal window.\n", name)
+	// 	fmt.Println("You can connect to it using:")
+	// 	fmt.Printf("  vmctl shell %s\n", name)
+
+	// 	// Don't wait for initialization since the user can see the progress in the terminal window
+	// 	return nil
+	// } else if showLogs {
+	// 	// Start VM with console logs in current terminal (direct QEMU log streaming)
+	// 	fmt.Printf("Starting VM %s with direct console streaming...\n", name)
+
+	// 	// First start the VM normally
+	// 	if err := Manager.StartVM(ctx, createdVM); err != nil {
+	// 		// If context was canceled, we need to clean up
+	// 		if ctx.Err() != nil {
+	// 			fmt.Println("VM creation canceled, cleaning up...")
+	// 			cleanupCanceledVM(context.Background(), createdVM)
+	// 			return ctx.Err()
+	// 		}
+	// 		return errors.Errorf("starting VM: %w", err)
+	// 	}
+
+	// 	// Then stream the QEMU logs directly (this will block until Ctrl+C or VM terminates)
+	// 	bootSuccessful, err := Manager.StreamQEMULogs(ctx, createdVM)
+	// 	if err != nil {
+	// 		fmt.Printf("Warning: Log streaming ended with error: %v\n", err)
+	// 	}
+
+	// 	// Update VM status to ready only if boot was successful
+	// 	if bootSuccessful {
+	// 		createdVM.Status = "started"
+	// 		if err := createdVM.SaveState(); err != nil {
+	// 			fmt.Printf("Warning: Failed to update VM status to started: %v\n", err)
+	// 		} else {
+	// 			fmt.Printf("VM %s status updated to %s\n", name, "started")
+	// 		}
+	// 	} else {
+	// 		fmt.Printf("VM %s boot not detected as successful, status not updated\n", name)
+	// 	}
+
+	// 	fmt.Printf("\nVM %s is now ready to use.\n", name)
+	// 	fmt.Println("You can connect to it using:")
+	// 	fmt.Printf("  vmctl shell %s\n", name)
+
+	// 	return nil
+	// } else {
+	// 	// This is now the non-default case, used when --no-logs is specified
+	// 	fmt.Printf("Starting VM %s without log streaming (cloud-init logs hidden)...\n", name)
+
+	// 	if err := Manager.StartVM(ctx, createdVM); err != nil {
+	// 		// If context was canceled, we need to clean up
+	// 		if ctx.Err() != nil {
+	// 			fmt.Println("VM creation canceled, cleaning up...")
+	// 			cleanupCanceledVM(context.Background(), createdVM)
+	// 			return ctx.Err()
+	// 		}
+	// 		return errors.Errorf("starting VM: %w", err)
+	// 	}
+
+	// 	fmt.Printf("VM %s is starting, waiting for cloud-init to complete...\n", name)
+	// 	fmt.Println("(Press Ctrl+C to cancel)")
+
+	// 	// Wait for VM to complete initialization
+	// 	err = Manager.WaitForInitialization(ctx, createdVM)
+
+	// 	// If context was canceled, we need to clean up
+	// 	if ctx.Err() != nil {
+	// 		fmt.Println("VM initialization canceled, cleaning up...")
+	// 		cleanupCanceledVM(context.Background(), createdVM)
+	// 		return ctx.Err()
+	// 	}
+
+	// 	if err != nil {
+	// 		fmt.Printf("VM %s failed to initialize: %v\n", name, err)
+	// 		return err
+	// 	}
+
+	// 	fmt.Printf("VM %s initialized successfully and is now ready to use\n", name)
+	// 	return nil
+	// }
 }
 
 // cleanupCanceledVM cleans up a VM that was canceled during creation or initialization
 func cleanupCanceledVM(ctx context.Context, vm *vm.VM) {
-	// Use a new context to ensure cleanup happens even if the original context was canceled
-	fmt.Printf("Cleaning up VM %s...\n", vm.Name)
-
-	// Forcefully kill the VM process if it's still running
-	if vm.PID > 0 {
-		proc, err := os.FindProcess(vm.PID)
-		if err == nil {
-			// First try to terminate gracefully
-			if err := proc.Signal(syscall.SIGTERM); err != nil {
-				fmt.Printf("Warning: Failed to send SIGTERM to VM process: %v\n", err)
-			}
-
-			// Wait a moment for graceful shutdown
-			time.Sleep(2 * time.Second)
-
-			// Then force kill if still running
-			if proc.Kill() == nil {
-				fmt.Printf("Forcefully terminated VM process (PID: %d)\n", vm.PID)
-			}
-		}
+	if err := vm.Stop(ctx, Manager.TmuxManager); err != nil {
+		fmt.Printf("Warning: Failed to stop VM through normal means: %v\n", err)
 	}
-
-	// Stop the VM if it's running
-	status := vm.GetStatus()
-	if status == "started" || status == "initializing" {
-		if err := vm.Stop(); err != nil {
-			fmt.Printf("Warning: Failed to stop VM through normal means: %v\n", err)
-		}
-	}
-
-	// Mark the VM as failed
-	vm.Status = "failed"
-	vm.LastError = "Canceled by user"
-	vm.SaveState()
-
-	// Report confirmation to user
-	fmt.Printf("VM %s cleanup completed\n", vm.Name)
 }
 
 func startVM(ctx context.Context, name string) error {
+
 	vmd, err := Manager.GetVM(ctx, name)
 	if err != nil {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	// Make sure the VM is in a state where it can be started
-	status := vmd.GetStatus()
-	if status != vm.VMStatusStopped && status != vm.VMStatusReady {
-		return errors.Errorf("VM is in state %s and cannot be started. VM must be in '%s' or '%s' state",
-			status, vm.VMStatusStopped, vm.VMStatusReady)
-	}
-
-	// Check if this VM has already been initialized (cloud-init completed)
-	alreadyInitialized := status == vm.VMStatusReady
-
-	// If VM has already been initialized, use a different initial status
-	if alreadyInitialized {
-		vmd.Status = vm.VMStatusStarting // Status for VMs where cloud-init has already run
-	} else {
-		vmd.Status = vm.VMStatusInitializing // Status for first-time boot where cloud-init needs to run
-	}
-	if err := vmd.SaveState(); err != nil {
-		fmt.Printf("Warning: Failed to update initial VM status: %v\n", err)
-	}
-
-	if err := Manager.StartVM(ctx, vmd); err != nil {
+	if err := vmd.Start(ctx, Manager.TmuxManager); err != nil {
 		return errors.Errorf("starting VM: %w", err)
 	}
 
-	// Show appropriate message based on whether VM needs initialization
-	if alreadyInitialized {
-		fmt.Printf("VM %s is starting (already initialized)...\n", name)
-	} else {
-		fmt.Printf("VM %s is starting and initializing (cloud-init running)...\n", name)
+	if err := vmd.Wait(ctx, Manager.TmuxManager); err != nil {
+		return errors.Errorf("waiting for VM: %w", err)
 	}
 
-	// Wait for the VM to be fully booted (either by checking SSH or another method)
-	// If SSH connection works, the VM is ready
-	fmt.Println("Waiting for VM to be fully started...")
-
-	// Simple delay to allow VM to reach ready state
-	// Could be replaced with more sophisticated check
-	time.Sleep(5 * time.Second)
-
-	// Try to make SSH connection to verify VM is up
-	if _, err := vmd.ConnectSSH(); err == nil {
-		fmt.Printf("SSH connection successful, VM is fully started\n")
-	} else {
-		fmt.Printf("Note: SSH connection not available yet, but VM is starting\n")
-	}
-
-	// IMPORTANT: Reload the VM before updating status to ensure we have the latest state
-	vmd, err = Manager.GetVM(ctx, name)
-	if err != nil {
-		fmt.Printf("Warning: Could not reload VM before status update: %v\n", err)
-	}
-
-	// Update status to 'started' now that VM is running
-	vmd.Status = vm.VMStatusStarted
-	if err := vmd.SaveState(); err != nil {
-		fmt.Printf("Warning: Failed to update VM status: %v\n", err)
-	} else {
-		fmt.Printf("VM %s status updated to %s\n", name, vm.VMStatusStarted)
-	}
-
-	// Verify the status was properly saved by reloading the VM
-	time.Sleep(1 * time.Second) // Brief pause to ensure file is written
-	updatedVM, err := Manager.GetVM(ctx, name)
-	if err != nil {
-		fmt.Printf("Warning: Could not verify status update: %v\n", err)
-	} else if updatedVM.GetStatus() != vm.VMStatusStarted {
-		fmt.Printf("Warning: VM status did not update properly. Expected '%s', got '%s'\n",
-			vm.VMStatusStarted, updatedVM.GetStatus())
-
-		// Try one more time with the freshly loaded VM object
-		updatedVM.Status = vm.VMStatusStarted
-		if err := updatedVM.SaveState(); err != nil {
-			fmt.Printf("Warning: Final attempt to update VM status failed: %v\n", err)
-		} else {
-			fmt.Printf("VM %s status updated to %s (retry successful)\n", name, vm.VMStatusStarted)
-		}
-	}
-
-	fmt.Printf("VM %s started successfully\n", name)
-	return nil
-}
-
-func startVMVisible(ctx context.Context, name string) error {
-	vmd, err := Manager.GetVM(ctx, name)
-	if err != nil {
-		return errors.Errorf("getting VM: %w", err)
-	}
-
-	// Make sure the VM is in a state where it can be started
-	status := vmd.GetStatus()
-	if status != vm.VMStatusStopped && status != vm.VMStatusReady {
-		return errors.Errorf("VM is in state %s and cannot be started. VM must be in '%s' or '%s' state",
-			status, vm.VMStatusStopped, vm.VMStatusReady)
-	}
-
-	// Check if this VM has already been initialized (cloud-init completed)
-	alreadyInitialized := status == vm.VMStatusReady
-
-	// If VM has already been initialized, use a different initial status
-	if alreadyInitialized {
-		vmd.Status = vm.VMStatusStarting // Status for VMs where cloud-init has already run
-	} else {
-		vmd.Status = vm.VMStatusInitializing // Status for first-time boot where cloud-init needs to run
-	}
-	vmd.SaveState()
-
-	if err := Manager.StartVMVisible(ctx, vmd); err != nil {
-		return errors.Errorf("starting VM in visible mode: %w", err)
-	}
-
-	// Show appropriate message based on whether VM needs initialization
-	if alreadyInitialized {
-		fmt.Printf("VM %s is starting (already initialized) in visible mode.\n", name)
-	} else {
-		fmt.Printf("VM %s is starting and initializing in visible mode.\n", name)
-	}
-
-	// Simple delay to allow VM to reach ready state
-	// Could be replaced with more sophisticated check
-	time.Sleep(5 * time.Second)
-
-	// Update status to 'started' now that VM is running
-	vmd.Status = vm.VMStatusStarted
-	if err := vmd.SaveState(); err != nil {
-		fmt.Printf("Warning: Failed to update VM status: %v\n", err)
-	}
-
-	fmt.Printf("VM %s started in visible mode. Check the new terminal window\n", name)
-	fmt.Printf("VM status has been updated to 'started'\n")
-	return nil
-}
-
-func startVMForeground(ctx context.Context, name string) error {
-	vmd, err := Manager.GetVM(ctx, name)
-	if err != nil {
-		return errors.Errorf("getting VM: %w", err)
-	}
-
-	// Make sure the VM is in a state where it can be started
-	status := vmd.GetStatus()
-	if status != vm.VMStatusStopped && status != vm.VMStatusReady {
-		return errors.Errorf("VM is in state %s and cannot be started. VM must be in '%s' or '%s' state",
-			status, vm.VMStatusStopped, vm.VMStatusReady)
-	}
-
-	if err := Manager.StartVMForeground(ctx, vmd); err != nil {
-		return errors.Errorf("starting VM: %w", err)
-	}
-
-	fmt.Printf("VM %s started successfully\n", name)
 	return nil
 }
 
@@ -580,7 +358,7 @@ func stopVM(ctx context.Context, name string) error {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	if err := vm.Stop(); err != nil {
+	if err := vm.Stop(ctx, Manager.TmuxManager); err != nil {
 		return errors.Errorf("stopping VM: %w", err)
 	}
 
@@ -608,27 +386,18 @@ func shellVM(ctx context.Context, name string) error {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	fmt.Printf("Opening shell to VM %s...\n", name)
-	if err := vm.ExecShell(); err != nil {
-		return errors.Errorf("opening shell: %w", err)
-	}
-
-	return nil
+	// Use the tmux-enabled ShellVM method
+	return vm.ExecShell(ctx, Manager.TmuxManager)
 }
 
-func execVM(ctx context.Context, name string, cmdArgs []string) error {
+func execVM(ctx context.Context, name string, args []string) error {
 	vm, err := Manager.GetVM(ctx, name)
 	if err != nil {
 		return errors.Errorf("getting VM: %w", err)
 	}
 
-	// Join the command and arguments
-	command := cmdArgs[0]
-	if len(cmdArgs) > 1 {
-		command = fmt.Sprintf("%s %s", command, strings.Join(cmdArgs[1:], " "))
-	}
-
-	output, err := vm.ExecCommand(command)
+	// Use the tmux-enabled ExecVM method
+	output, err := vm.Exec(ctx, Manager.TmuxManager, args)
 	if err != nil {
 		return errors.Errorf("executing command: %w", err)
 	}
@@ -643,5 +412,88 @@ func cleanupVMs(ctx context.Context) error {
 	}
 
 	fmt.Println("VM cleanup completed successfully")
+	return nil
+}
+
+// Implementation of the attachVM function
+func attachVM(ctx context.Context, name string) error {
+	return errors.Errorf("not implemented")
+	// // Check if the tmux manager is available
+	// if Manager.TmuxManager == nil {
+	// 	return errors.Errorf("tmux session management is not available")
+	// }
+
+	// // If no VM name is provided, just attach to the master session
+	// if name == "" {
+	// 	fmt.Println("Attaching to the master tmux session. Use Ctrl+B then D to detach.")
+
+	// 	// Attach to the master session
+	// 	err := Manager.TmuxManager.AttachSession(ctx)
+	// 	if err != nil {
+	// 		return errors.Errorf("attaching to master tmux session: %w", err)
+	// 	}
+
+	// 	return nil
+	// }
+
+	// // If a VM name is provided, make sure it exists and is running
+	// vm, err := Manager.GetVM(ctx, name)
+	// if err != nil {
+	// 	return errors.Errorf("getting VM: %w", err)
+	// }
+
+	// // Check if the VM has a window in the master session
+	// hasWindow, err := Manager.TmuxManager.HasVM(ctx, name)
+	// if err != nil {
+	// 	return errors.Errorf("checking for VM window: %w", err)
+	// }
+
+	// if !hasWindow {
+	// 	// Create a window for the VM if it doesn't have one
+	// 	err = Manager.TmuxManager.CreateVMWindow(ctx, name)
+	// 	if err != nil {
+	// 		return errors.Errorf("creating window for VM: %w", err)
+	// 	}
+	// }
+
+	// // Select the VM's window
+	// err = Manager.TmuxManager.SelectVMWindow(ctx, name)
+	// if err != nil {
+	// 	return errors.Errorf("selecting VM window: %w", err)
+	// }
+
+	// fmt.Printf("Attaching to VM %s in the master tmux session. Use Ctrl+B then D to detach.\n", name)
+
+	// // Attach to the master session
+	// err = Manager.TmuxManager.AttachSession(ctx)
+	// if err != nil {
+	// 	return errors.Errorf("attaching to master tmux session: %w", err)
+	// }
+
+	return nil
+}
+
+// cleanupTmux handles shutting down all tmux-related resources
+func cleanupTmux(ctx context.Context) error {
+	// Check if the tmux manager is available
+	if Manager.TmuxManager == nil {
+		return errors.Errorf("tmux session management is not available")
+	}
+
+	fmt.Println("Shutting down all tmux windows and the master session...")
+
+	// First try to close all VM windows
+	err := Manager.TmuxManager.CloseAllVMWindows(ctx)
+	if err != nil {
+		fmt.Printf("Warning: Error closing VM windows: %v\n", err)
+	}
+
+	// Then shut down the entire session
+	err = Manager.TmuxManager.ShutdownSession(ctx)
+	if err != nil {
+		return errors.Errorf("shutting down tmux session: %w", err)
+	}
+
+	fmt.Println("Tmux cleanup completed successfully")
 	return nil
 }

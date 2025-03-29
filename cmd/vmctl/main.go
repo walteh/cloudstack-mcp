@@ -99,6 +99,8 @@ func run(ctx context.Context) error {
 			return errors.Errorf("usage: create-vm-from-template <vm-name> <template-name>")
 		}
 		return createVMFromTemplate(ctx, manager, subArgs[0], subArgs[1])
+	case "cleanup-vms":
+		return cleanupVMs(ctx, manager)
 	case "start-vm":
 		if len(subArgs) < 1 {
 			return errors.Errorf("usage: start-vm <name>")
@@ -396,6 +398,18 @@ hostname: %s
 	return nil
 }
 
+// Add cleanup function
+func cleanupVMs(ctx context.Context, manager *vm.LocalManager) error {
+	fmt.Println("Cleaning up all VMs - stopping processes and moving to vms-deleted directory...")
+
+	if err := manager.CleanupVMs(ctx); err != nil {
+		return errors.Errorf("cleaning up VMs: %w", err)
+	}
+
+	fmt.Println("VM cleanup completed successfully")
+	return nil
+}
+
 // printHelp displays usage information for the vmctl command
 func printHelp() error {
 	helpText := `CloudStack MCP VM Controller
@@ -416,6 +430,7 @@ Commands:
     list-vms                                           - List all VMs
     shell <name>                                       - Open a shell to a VM
     exec <name> <command>                              - Execute a command on a VM
+    cleanup-vms                                        - Stop all VMs and move to vms-deleted dir
 
   Template Management:
     create-template <name> <desc> <base-img> [pkgs...] - Create a VM template

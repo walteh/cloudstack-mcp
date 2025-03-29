@@ -199,53 +199,20 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 	vm.Name = vm.Config.Name
 
 	// Determine architecture and platform-specific settings
-	arch := ""
-	machine := ""
-	nic := ""
-	efi := ""
-
-	// Detect architecture from image name instead of QEMU binary
 	imageName := vm.Config.BaseImg.Name
-	if strings.Contains(imageName, "arm64") || strings.Contains(imageName, "aarch64") {
-		arch = "aarch64"
-		m.QemuPath = "qemu-system-aarch64"
-	} else if strings.Contains(imageName, "amd64") || strings.Contains(imageName, "x86_64") {
-		arch = "x86_64"
-		m.QemuPath = "qemu-system-x86_64"
-	} else {
-		// Default to host architecture
-		switch strings.ToLower(filepath.Base(m.QemuPath)) {
-		case "qemu-system-aarch64":
-			arch = "aarch64"
-		case "qemu-system-x86_64":
-			arch = "x86_64"
-		default:
-			return errors.Errorf("unsupported QEMU architecture")
-		}
-	}
+	arch := DetectArchitecture(imageName)
+	isAppleSilicon := IsAppleSilicon()
 
-	logger.Debug().Str("arch", arch).Str("qemu", m.QemuPath).Msg("Detected architecture")
+	// Set the appropriate QEMU path based on architecture
+	m.QemuPath = GetQEMUPath(arch)
 
-	switch arch {
-	case "aarch64":
-		if _, err := os.Stat("/opt/homebrew/share/qemu/edk2-aarch64-code.fd"); err == nil {
-			efi = "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
-			machine = "virt,accel=hvf,highmem=on"
-		} else {
-			efi = "/usr/share/qemu/edk2-aarch64-code.fd"
-			machine = "virt,accel=kvm"
-		}
-	case "x86_64":
-		if _, err := os.Stat("/opt/homebrew/share/qemu/edk2-x86_64-code.fd"); err == nil {
-			efi = "/opt/homebrew/share/qemu/edk2-x86_64-code.fd"
-			machine = "q35,accel=hvf"
-		} else {
-			efi = "/usr/share/qemu/OVMF.fd"
-			machine = "q35,accel=kvm"
-		}
-	}
+	// Get machine settings and EFI path
+	machine := GetMachineSetting(arch, isAppleSilicon)
+	efi := GetEFIPath(arch)
 
 	logger.Debug().
+		Str("arch", arch).
+		Str("qemu", m.QemuPath).
 		Str("machine", machine).
 		Str("efi", efi).
 		Msg("VM hardware configuration")
@@ -268,6 +235,7 @@ func (m *LocalManager) StartVM(ctx context.Context, vm *VM) error {
 		Msg("VM disk configuration")
 
 	// Set up networking based on platform
+	var nic string
 	switch vm.Config.Network.Type {
 	case "vmnet-shared":
 		nic = fmt.Sprintf("vmnet-shared,start-address=%s,subnet-mask=%s",
@@ -366,53 +334,20 @@ func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
 	vm.Name = vm.Config.Name
 
 	// Determine architecture and platform-specific settings
-	arch := ""
-	machine := ""
-	nic := ""
-	efi := ""
-
-	// Detect architecture from image name instead of QEMU binary
 	imageName := vm.Config.BaseImg.Name
-	if strings.Contains(imageName, "arm64") || strings.Contains(imageName, "aarch64") {
-		arch = "aarch64"
-		m.QemuPath = "qemu-system-aarch64"
-	} else if strings.Contains(imageName, "amd64") || strings.Contains(imageName, "x86_64") {
-		arch = "x86_64"
-		m.QemuPath = "qemu-system-x86_64"
-	} else {
-		// Default to host architecture
-		switch strings.ToLower(filepath.Base(m.QemuPath)) {
-		case "qemu-system-aarch64":
-			arch = "aarch64"
-		case "qemu-system-x86_64":
-			arch = "x86_64"
-		default:
-			return errors.Errorf("unsupported QEMU architecture")
-		}
-	}
+	arch := DetectArchitecture(imageName)
+	isAppleSilicon := IsAppleSilicon()
 
-	logger.Debug().Str("arch", arch).Str("qemu", m.QemuPath).Msg("Detected architecture")
+	// Set the appropriate QEMU path based on architecture
+	m.QemuPath = GetQEMUPath(arch)
 
-	switch arch {
-	case "aarch64":
-		if _, err := os.Stat("/opt/homebrew/share/qemu/edk2-aarch64-code.fd"); err == nil {
-			efi = "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
-			machine = "virt,accel=hvf,highmem=on"
-		} else {
-			efi = "/usr/share/qemu/edk2-aarch64-code.fd"
-			machine = "virt,accel=kvm"
-		}
-	case "x86_64":
-		if _, err := os.Stat("/opt/homebrew/share/qemu/edk2-x86_64-code.fd"); err == nil {
-			efi = "/opt/homebrew/share/qemu/edk2-x86_64-code.fd"
-			machine = "q35,accel=hvf"
-		} else {
-			efi = "/usr/share/qemu/OVMF.fd"
-			machine = "q35,accel=kvm"
-		}
-	}
+	// Get machine settings and EFI path
+	machine := GetMachineSetting(arch, isAppleSilicon)
+	efi := GetEFIPath(arch)
 
 	logger.Debug().
+		Str("arch", arch).
+		Str("qemu", m.QemuPath).
 		Str("machine", machine).
 		Str("efi", efi).
 		Msg("VM hardware configuration")
@@ -435,6 +370,7 @@ func (m *LocalManager) StartVMForeground(ctx context.Context, vm *VM) error {
 		Msg("VM disk configuration")
 
 	// Set up networking based on platform
+	var nic string
 	switch vm.Config.Network.Type {
 	case "vmnet-shared":
 		nic = fmt.Sprintf("vmnet-shared,start-address=%s,subnet-mask=%s",
@@ -666,4 +602,65 @@ func (m *LocalManager) ListVMs(ctx context.Context) ([]*VM, error) {
 	}
 
 	return vms, nil
+}
+
+// CleanupVMs stops all VM processes and moves their folders to a vms-deleted directory
+func (m *LocalManager) CleanupVMs(ctx context.Context) error {
+	logger := zerolog.Ctx(ctx)
+	logger.Info().Msg("Cleaning up all VMs")
+
+	// Get all VMs
+	vms, err := m.ListVMs(ctx)
+	if err != nil {
+		return errors.Errorf("listing VMs: %w", err)
+	}
+
+	// Create vms-deleted directory if it doesn't exist
+	deletedDir := filepath.Join(baseDir(), "vms-deleted")
+	if err := os.MkdirAll(deletedDir, 0755); err != nil {
+		return errors.Errorf("creating vms-deleted directory: %w", err)
+	}
+
+	// Process each VM
+	for _, vm := range vms {
+		logger.Info().Str("name", vm.Name).Msg("Cleaning up VM")
+
+		// Kill the process if it's running
+		if vm.GetStatus() == "running" {
+			logger.Info().Str("name", vm.Name).Int("pid", vm.PID).Msg("Stopping VM process")
+			if err := vm.Stop(); err != nil {
+				logger.Warn().Err(err).Str("name", vm.Name).Msg("Failed to stop VM gracefully, killing process")
+
+				// Force kill the process if needed
+				if vm.PID > 0 {
+					proc, err := os.FindProcess(vm.PID)
+					if err == nil {
+						if err := proc.Kill(); err != nil {
+							logger.Warn().Err(err).Str("name", vm.Name).Int("pid", vm.PID).Msg("Failed to kill VM process")
+						}
+					}
+				}
+			}
+		}
+
+		// Move the VM directory to vms-deleted
+		srcDir := vm.Dir()
+		destDir := filepath.Join(deletedDir, vm.Name)
+
+		// Remove destination directory if it already exists
+		if _, err := os.Stat(destDir); err == nil {
+			logger.Info().Str("name", vm.Name).Msg("Removing existing VM in deleted directory")
+			if err := os.RemoveAll(destDir); err != nil {
+				logger.Warn().Err(err).Str("name", vm.Name).Msg("Failed to remove existing deleted VM directory")
+			}
+		}
+
+		logger.Info().Str("name", vm.Name).Str("src", srcDir).Str("dest", destDir).Msg("Moving VM directory")
+		if err := os.Rename(srcDir, destDir); err != nil {
+			logger.Warn().Err(err).Str("name", vm.Name).Msg("Failed to move VM directory")
+		}
+	}
+
+	logger.Info().Int("count", len(vms)).Msg("VM cleanup completed")
+	return nil
 }

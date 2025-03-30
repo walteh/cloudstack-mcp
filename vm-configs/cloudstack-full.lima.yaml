@@ -1,0 +1,216 @@
+# CloudStack on Lima with KVM
+# Based on https://rohityadav.cloud/blog/cloudstack-kvm/
+
+# VM specs (increased for CloudStack requirements)
+arch: "aarch64"
+cpus: 4
+memory: 12GiB
+disk: 60GiB
+
+# Use Ubuntu LTS image for ARM64
+images:
+    - location: "https://cloud-images.ubuntu.com/releases/oracular/release/ubuntu-24.10-server-cloudimg-arm64.img"
+      arch: "aarch64"
+
+# Use Virtualisation.framework on Mac
+vmType: "vz"
+
+# Mount home directory
+mounts:
+    - location: "~"
+      writable: true
+
+# SSH configuration
+ssh:
+    localPort: 0
+    loadDotSSHPubKeys: true
+
+# Network configuration with vzNAT
+networks:
+    - vzNAT: true
+
+# Port forwarding for required services
+portForwards:
+    - guestPort: 16509 # libvirt
+      hostPort: 16509
+    - guestPort: 8250 # CloudStack agent
+      hostPort: 8250
+    - guestPort: 8080 # CloudStack management UI
+      hostPort: 8080
+    - guestPort: 3306 # MySQL
+      hostPort: 3306
+    - guestPort: 2049 # NFS
+      hostPort: 2049
+
+# Comprehensive provision script to setup CloudStack
+provision:
+    - mode: system
+      script: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+
+          echo "=== Installing basic packages ==="
+          apt-get update
+          apt-get install -y openntpd openssh-server sudo vim htop tar bridge-utils
+
+          # Get IP address dynamically
+          IP_ADDRESS=$(ip addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+          echo "Using IP address: $IP_ADDRESS"
+
+          # === Network Setup ===
+          echo "=== Configuring network ==="
+          # Using netplan for network configuration
+          cat > /etc/netplan/01-netcfg.yaml << EOF
+          network:
+            version: 2
+            renderer: networkd
+            ethernets:
+              eth0:
+                dhcp4: true
+                dhcp6: false
+            bridges:
+              cloudbr0:
+                interfaces: [eth0]
+                dhcp4: true
+                dhcp6: false
+                parameters:
+                  stp: false
+                  forward-delay: 0
+          EOF
+
+          # Apply network config
+          netplan generate
+          netplan apply
+
+          # === Repository Setup ===
+          echo "=== Setting up CloudStack repository ==="
+          mkdir -p /etc/apt/keyrings
+          wget -O- http://packages.shapeblue.com/release.asc | gpg --dearmor | tee /etc/apt/keyrings/cloudstack.gpg > /dev/null
+          echo deb [signed-by=/etc/apt/keyrings/cloudstack.gpg] http://packages.shapeblue.com/cloudstack/upstream/debian/4.20 / > /etc/apt/sources.list.d/cloudstack.list
+          apt-get update -y
+
+          # === Management Server Setup ===
+          echo "=== Installing CloudStack management server and MySQL ==="
+          apt-get install -y cloudstack-management mysql-server
+
+          # Configure MySQL for CloudStack
+          cat > /etc/mysql/mysql.conf.d/mysqld.cnf << 'EOF'
+          [mysqld]
+          server_id = 1
+          sql-mode="STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION,ERROR_FOR_DIVISION_BY_ZERO,NO_ZERO_DATE,NO_ZERO_IN_DATE,NO_ENGINE_SUBSTITUTION"
+          innodb_rollback_on_timeout=1
+          innodb_lock_wait_timeout=600
+          max_connections=1000
+          log-bin=mysql-bin
+          binlog-format = 'ROW'
+          EOF
+
+          # Restart MySQL
+          systemctl restart mysql
+
+          # === Storage Setup ===
+          echo "=== Setting up NFS storage ==="
+          apt-get install -y nfs-kernel-server quota
+
+          # Configure exports
+          echo "/export  *(rw,async,no_root_squash,no_subtree_check)" > /etc/exports
+          mkdir -p /export/primary /export/secondary
+          exportfs -a
+
+          # Configure NFS
+          sed -i -e 's/^RPCMOUNTDOPTS="--manage-gids"$/RPCMOUNTDOPTS="-p 892 --manage-gids"/g' /etc/default/nfs-kernel-server || true
+          sed -i -e 's/^STATDOPTS=$/STATDOPTS="--port 662 --outgoing-port 2020"/g' /etc/default/nfs-common || true
+          echo "NEED_STATD=yes" >> /etc/default/nfs-common
+          sed -i -e 's/^RPCRQUOTADOPTS=$/RPCRQUOTADOPTS="-p 875"/g' /etc/default/quota || true
+          service nfs-kernel-server restart
+
+          # === KVM Host Setup ===
+          echo "=== Setting up KVM host ==="
+          apt-get install -y qemu-kvm cloudstack-agent
+
+          # Configure libvirt and qemu
+          sed -i -e 's/\#vnc_listen.*$/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
+
+          # For Ubuntu 22.04
+          echo 'LIBVIRTD_ARGS="--listen"' >> /etc/default/libvirtd
+
+          # Mask socket-based activation
+          systemctl mask libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket libvirtd-tls.socket libvirtd-tcp.socket
+
+          # Configure legacy mode
+          echo 'remote_mode="legacy"' >> /etc/libvirt/libvirt.conf
+
+          # Configure libvirtd
+          cat >> /etc/libvirt/libvirtd.conf << 'EOF'
+          listen_tls=0
+          listen_tcp=1
+          tcp_port = "16509"
+          mdns_adv = 0
+          auth_tcp = "none"
+          EOF
+
+          systemctl restart libvirtd
+
+          # === Disable Firewall for simplicity in the VM ===
+          echo "=== Configuring firewall ==="
+          # Disable ufw if it's enabled
+          ufw disable || true
+
+          # Disable apparmor on libvirtd
+          ln -s /etc/apparmor.d/usr.sbin.libvirtd /etc/apparmor.d/disable/ || true
+          ln -s /etc/apparmor.d/usr.lib.libvirt.virt-aa-helper /etc/apparmor.d/disable/ || true
+          apparmor_parser -R /etc/apparmor.d/usr.sbin.libvirtd || true
+          apparmor_parser -R /etc/apparmor.d/usr.lib.libvirt.virt-aa-helper || true
+
+          # Get current IP (might have changed after network reconfiguration)
+          IP_ADDRESS=$(ip addr show cloudbr0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+          if [ -z "$IP_ADDRESS" ]; then
+              IP_ADDRESS=$(ip addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+          fi
+
+          # === Create script to finish setup ===
+          cat > /root/setup-cloudstack.sh << EOF
+          #!/bin/bash
+
+          # Get current IP
+          IP_ADDRESS=$(ip addr show cloudbr0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+          if [ -z "$IP_ADDRESS" ]; then
+              IP_ADDRESS=$(ip addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+          fi
+          echo "Using IP address: $IP_ADDRESS"
+
+          # Setup CloudStack databases
+          cloudstack-setup-databases cloud:cloud@localhost --deploy-as=root -i $IP_ADDRESS
+
+          # Launch management server
+          cloudstack-setup-management
+
+          echo "=== CloudStack setup complete ==="
+          echo "Management UI available at: http://$IP_ADDRESS:8080/client"
+          echo "You can also access it at: http://localhost:8080/client on your host"
+          echo "Default login: username 'admin', password 'password'"
+          EOF
+
+          chmod +x /root/setup-cloudstack.sh
+
+          echo "=== Initial setup complete ==="
+          echo "IP Address: $IP_ADDRESS"
+          echo "Please run the following to complete CloudStack setup:"
+          echo "lima shell cloudstack-full"
+          echo "sudo /root/setup-cloudstack.sh"
+
+# Startup message
+message: |
+    CloudStack VM is ready!
+
+    To finish CloudStack setup:
+    1. Run: lima shell cloudstack-full
+    2. Run: sudo /root/setup-cloudstack.sh
+
+    After setup completes, access CloudStack UI at:
+    http://localhost:8080/client
+
+    Default login: 
+    Username: admin
+    Password: password

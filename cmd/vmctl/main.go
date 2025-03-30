@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/walteh/cloudstack-mcp/cmd/vmctl/commands"
 	"github.com/walteh/cloudstack-mcp/pkg/vm"
@@ -32,24 +31,41 @@ func main() {
 
 	rootCmd := commands.RootCmd()
 
+	// hide usage on error
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
+
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
 
 	rootCmd.PersistentPreRunE = setLoggingToContextInPreRun
 
 	// Execute command
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Error running command")
+		level := getLevelFromFlag(rootCmd)
+		if level == zerolog.DebugLevel {
+			fmt.Fprintf(os.Stderr, "\nError running command: %+v\n\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "\nError running command: %v\n\n", err)
+		}
+		os.Exit(1)
 	}
 }
 
-func setLoggingToContextInPreRun(cmd *cobra.Command, args []string) error {
+func getLevelFromFlag(cmd *cobra.Command) zerolog.Level {
 	level := zerolog.InfoLevel
 	debug := cmd.Flag("debug")
 	if debug.Changed && debug.Value.String() == "true" {
 		level = zerolog.DebugLevel
 	}
+	return level
+}
+func setLoggingToContextInPreRun(cmd *cobra.Command, args []string) error {
+	level := getLevelFromFlag(cmd)
 
-	ctx := zerolog.Ctx(cmd.Context()).With().Str("command", cmd.Name()).Logger().Level(level).WithContext(cmd.Context())
+	wri := zerolog.New(zerolog.NewConsoleWriter())
+	logger := wri.With().Str("command", cmd.Name()).Logger().Level(level)
+
+	ctx := logger.WithContext(cmd.Context())
 	cmd.SetContext(ctx)
 
 	manager, err := vm.NewLocalManager()

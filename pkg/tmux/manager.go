@@ -115,8 +115,46 @@ func (sm *SessionManager) CreateVMWindow(ctx context.Context, vmName string) err
 		return errors.Errorf("creating window for VM %s: %w", vmName, err)
 	}
 
+	session.AddWindow(window)
+
+	err = window.Select()
+	if err != nil {
+		return errors.Errorf("selecting window: %w", err)
+	}
+
+	if len(window.Panes) == 0 {
+		return errors.Errorf("no panes found in window for VM %s", vmName)
+	}
+
+	windows, err := session.ListWindows()
+	if err != nil {
+		return errors.Errorf("listing windows: %w", err)
+	}
+
+	for _, w := range windows {
+		fmt.Printf("window: %+v\n", w)
+	}
+
+	fmt.Printf("window: %+v\n", window)
+
+	pane := window.Panes[0]
+
+	// window.AddPane(gotmux.Pane{
+	// 	ID:          0,
+	// 	SessionId:   session.Id,
+	// 	WindowId:    window.Id,
+	// 	SessionName: session.Name,
+	// 	WindowName:  window.Name,
+	// 	WindowIndex: 0,
+	// 	Active:      true,
+	// 	Index:       0,
+	// })
+	// if err != nil {
+	// 	return errors.Errorf("adding pane to window: %w", err)
+	// }
+
 	// Set an identifying header for the window
-	err = window.Panes[0].RunCommand(fmt.Sprintf("echo '=== VM: %s ===' && clear", vmName))
+	err = pane.RunCommand(fmt.Sprintf("echo '=== VM: %s ===' && clear", vmName))
 	if err != nil {
 		return errors.Errorf("setting window header: %w", err)
 	}
@@ -334,7 +372,7 @@ func (sm *SessionManager) CloseAllVMWindows(ctx context.Context) error {
 	}
 
 	// For each VM, try to close its window
-	for vmName, _ := range sm.vmWindows {
+	for vmName := range sm.vmWindows {
 		sm.mu.Unlock() // Temporarily unlock to avoid deadlock
 		err := sm.CloseVMWindow(ctx, vmName)
 		sm.mu.Lock() // Lock again

@@ -1,0 +1,108 @@
+# cloudstack-agent.yaml
+# Lima configuration for CloudStack Agent with KVM
+
+# VM resources
+cpus: 4
+memory: 8GiB
+disk: 50GiB
+
+# Use Ubuntu for better CloudStack compatibility
+images:
+    - location: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+      arch: "x86_64"
+
+# Enable nested virtualization (crucial for CloudStack)
+firmware:
+    legacyBIOS: false
+
+vmType: "qemu" # Use qemu for better compatibility
+
+# Mount local directories for ease of management
+mounts:
+    - location: "~/.lima/cloudstack-agent/shared"
+      writable: true
+
+provision:
+    # Install CloudStack dependencies
+    - mode: system
+      script: |
+          #!/bin/bash
+          set -eux -o pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          # Update and install dependencies
+          apt-get update
+          apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+          apt-get install -y nfs-kernel-server openjdk-11-jre-headless python3-pip
+          apt-get install -y iptables ebtables ethtool
+
+          # Configure libvirt
+          cat > /etc/libvirt/libvirtd.conf << EOF
+          listen_tls = 0
+          listen_tcp = 1
+          tcp_port = "16509"
+          mdns_adv = 0
+          auth_tcp = "none"
+          EOF
+
+          # Configure qemu
+          cat > /etc/libvirt/qemu.conf << EOF
+          vnc_listen = "0.0.0.0"
+          EOF
+
+          # Enable libvirt to listen on TCP
+          sed -i 's/#LIBVIRTD_ARGS="--listen"/LIBVIRTD_ARGS="--listen"/' /etc/default/libvirtd
+
+          # Setup NFS storage
+          mkdir -p /export/primary /export/secondary
+          cat > /etc/exports << EOF
+          /export *(rw,async,no_root_squash,no_subtree_check)
+          EOF
+          systemctl restart nfs-kernel-server
+
+          # Prepare for CloudStack agent
+          mkdir -p /etc/cloudstack/agent
+
+          # Download and install CloudStack agent (use your specific version if needed)
+          apt-get install -y wget unzip
+          cd /tmp
+          wget https://dlcdn.apache.org/cloudstack/releases/4.18.0.0/cloudstack-agent-4.18.0.0.tar.gz
+          tar -xzvf cloudstack-agent-4.18.0.0.tar.gz -C /opt/
+
+          # Configure agent properties - you'll need to update these values
+          cat > /etc/cloudstack/agent/agent.properties << EOF
+          host=MANAGEMENT_SERVER_IP
+          port=8250
+          zone=ZONE_ID
+          pod=POD_ID
+          cluster=CLUSTER_ID
+          guid=$(uuidgen)
+          EOF
+
+          systemctl enable libvirtd
+          systemctl restart libvirtd
+
+containerd:
+    system: false
+    user: false
+
+networks:
+    - vzNAT: true
+
+# Port forwarding
+portForwards:
+    - guestPort: 16509 # libvirt
+      hostPort: 16509
+    - guestPort: 8250 # CloudStack agent
+      hostPort: 8250
+    - guestPort: 2049 # NFS
+      hostPort: 2049
+
+# Message on startup
+message: |
+    CloudStack agent VM is ready!
+
+    To SSH: lima ssh cloudstack
+    To configure CloudStack agent: lima shell cloudstack
+
+    Important: Update /etc/cloudstack/agent/agent.properties with your management server details

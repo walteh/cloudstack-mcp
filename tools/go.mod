@@ -19,8 +19,11 @@ tool github.com/NickyBoy89/java2go
 
 tool github.com/kazhuravlev/options-gen/cmd/options-gen
 
+tool github.com/beringresearch/macpine
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
+	filippo.io/age v1.1.1 // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.2 // indirect
 	github.com/Ladicle/tabwriter v1.0.0 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
@@ -30,6 +33,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.15.0 // indirect
 	github.com/apex/log v1.9.0 // indirect
 	github.com/atombender/go-jsonschema v0.18.0 // indirect
+	github.com/beringresearch/macpine v1.0.9 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/briandowns/spinner v1.16.0 // indirect
 	github.com/chainguard-dev/git-urls v1.0.2 // indirect

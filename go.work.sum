@@ -21,6 +21,8 @@ cloud.google.com/go/monitoring v1.21.2/go.mod h1:hS3pXvaG8KgWTSz+dAdyzPrGUYmi2Q+
 cloud.google.com/go/storage v1.49.0 h1:zenOPBOWHCnojRd9aJZAyQXBYqkJkdQS42dxL55CIMw=
 cloud.google.com/go/storage v1.49.0/go.mod h1:k1eHhhpLvrPjVGfo0mOUPEJ4Y2+a/Hv5PiwehZI9qGU=
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9 h1:VpgP7xuJadIUuKccphEpTJnWhS2jkQyMt6Y7pJCD7fY=
+filippo.io/edwards25519 v1.0.0 h1:0wAIcmJUqRdI8IJ/3eGi5/HwXZWPujYXXlkrQogz0Ek=
+filippo.io/edwards25519 v1.0.0/go.mod h1:N1IkdkCkiLB6tki+MYJoSx2JTY9NUlxZE7eHn5EwJns=
 github.com/0xef53/go-cgroups v1.0.4 h1:AuBXdnSqfkz29OxGpFmVqGsTmkzdZkmE9+f7NXeLC3U=
 github.com/0xef53/go-qmp/v2 v2.0.4 h1:RQ9EnnAgT4NPvS8ARbAzWuMoiJ59B66Vr6Bg+OZ63A0=
 github.com/0xef53/go-tuntap v1.0.0 h1:eHBjnHuHZ3WC3xpkwXnudmglFNNP85Py5UE5/80uo84=

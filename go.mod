@@ -9,11 +9,13 @@ require (
 	github.com/go-task/task/v3 v3.42.1
 	github.com/google/go-cmp v0.7.0
 	github.com/invopop/jsonschema v0.13.0
+	github.com/jubnzv/go-tmux v0.0.0-20240808014214-bf465a395e96
 	github.com/mark3labs/mcp-go v0.17.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3
 	github.com/sourcegraph/go-diff v0.7.0
+	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/walteh/yaml v0.0.0-20240906221017-df4c3eb1fe66
 	github.com/wk8/go-ordered-map/v2 v2.1.8
@@ -50,7 +52,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
-	github.com/jubnzv/go-tmux v0.0.0-20240808014214-bf465a395e96 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -59,7 +60,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/smartystreets/goconvey v1.8.1 // indirect
-	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect

@@ -1,0 +1,7 @@
+#! /bin/bash
+
+set -e
+
+(cd ../macpine && ../cloudstack-mcp/go build -o ../cloudstack-mcp/bin/macpine .)
+
+./bin/macpine "$@"

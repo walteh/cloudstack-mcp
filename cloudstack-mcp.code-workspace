@@ -3,6 +3,10 @@
 		{
 			"name": "root",
 			"path": "."
+		},
+		{
+			"name": "macpine",
+			"path": "../macpine"
 		}
 		// {
 		// 	"name": "code-extension [ts]",

@@ -154,3 +154,28 @@ tasks:
         generates:
             - api/services/hypervisor/v1/hypervisor.pb.go
             - api/services/hypervisor/v1/hypervisor_grpc.pb.go
+
+    vm:launch:
+        desc: Launch a VM
+        cmds:
+            - mkdir -p ./.tmp/cloudstack-agent-mnt
+            - cp ./vm-configs/cloudstack-agent.cloud-init.yaml ./.tmp/cloudstack-agent-mnt/cloud-init.yaml
+            - yq -i ".users[0].ssh_authorized_keys[0] = \"$(cat ~/.ssh/walteh.git.pub)\"" ./.tmp/cloudstack-agent-mnt/cloud-init.yaml
+            - alpine launch -n cloudstack-agent --arch aarch64 --cpu 4 --memory 4096 --disk 20G --ssh 2922 --mount ./.tmp/cloudstack-agent-mnt --image nocloud_alpine-3.21.2-aarch64-uefi-cloudinit-r0.qcow2
+            - alpine exec cloudstack-agent -- ash -c "/mnt/cloudstack-agent-mnt/alpine-setup-cloud-init.sh"
+
+            - alpine exec cloudstack-agent -- ash -c "cloud-init -f /mnt/cloud-init.yaml init && cloud-init -f /mnt/cloud-init.yaml modules"
+
+    # vm:incus:
+    #     desc: Launch a VM using Incus
+    #     cmds:
+    #         - ./go tool macpine launch --name incus --ssh 223 --port 8449:8443
+    #         - ./go tool macpine exec incus -- "hwclock -s; wget https://raw.githubusercontent.com/beringresearch/macpine/main/scripts/enable_incus.sh"
+    #         - ./go tool macpine exec incus -- "ash enable_incus.sh"
+    #         - echo "sleeping for 10 seconds" && sleep 10
+    #         # - ./go tool macpine exec incus -- "lxc ipv4.address=10.10.10.1/24"
+    #         - ./go tool macpine exec incus "incus config set core.https_address 0.0.0.0:8443"
+    #         - ./go tool macpine exec incus "incus admin init --auto --network-address=0.0.0.0"
+    #         - ./go tool macpine exec incus "incus config trust add mymac"
+    #         - incus remote add incus https://127.0.0.1:8449
+    #         - incus remote switch incus

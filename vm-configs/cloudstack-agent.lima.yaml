@@ -43,7 +43,10 @@ provision:
     - mode: system
       script: |
           #!/bin/bash
+
           set -e
+          exec >> $LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/{{.Name}}/provision.log 2>&1
+
           export DEBIAN_FRONTEND=noninteractive
 
           echo "=== Installing basic packages ==="

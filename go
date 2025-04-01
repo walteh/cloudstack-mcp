@@ -68,11 +68,13 @@ fi
 if [ "${1:-}" == "tool" ]; then
 	shift
 	escape_regex() {
-		printf '%s\n' "$1" | sed 's/[][(){}.*+?^$|\\]/\\&/g'
+		printf '%s\n' "$1" | sed 's/[&/\]/\\&/g'
 	}
 	errors_to_suppress=(
 		# https://github.com/protocolbuffers/protobuf-javascript/issues/148
 		"plugin.proto#L122"
+		"# github.com/lima-vm/lima/cmd/limactl"
+		"ld: warning: ignoring duplicate libraries: '-lobjc'"
 	)
 	# 🔧 Build regex for suppressing errors
 	errors_to_suppress_regex=""
@@ -85,9 +87,39 @@ if [ "${1:-}" == "tool" ]; then
 	done
 
 	# 'go tool -n "$@"' can but used to get the binary name that is being run in case we need it later
-	tool_binary_executable=$(go tool -n "$@")
+	# tool_binary_executable=$(go tool -n "$@")
 
-	go tool "$@" <&0 >&1 2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
+	stdouts_to_suppress=(
+		# "# github.com/lima-vm/lima/cmd/limactl"
+		"invalid string just to have something heree"
+		# "ld: warning: ignoring duplicate libraries: '-lobjc'"
+	)
+	# 🔧 Build regex for suppressing stdouts
+	stdouts_to_suppress_regex=""
+	for phrase in "${stdouts_to_suppress[@]}"; do
+		escaped_phrase=$(escape_regex "$phrase")
+		if [[ -n "$stdouts_to_suppress_regex" ]]; then
+			stdouts_to_suppress_regex+="|"
+		fi
+		stdouts_to_suppress_regex+="$escaped_phrase"
+	done
+
+	export HL_CONFIG=./hl-config.yaml
+
+	if [[ "$*" == *"limactl"* ]]; then
+		shift
+		limactl --log-format=json "$@" <&0 \
+			1> >(hl -P --local >&1) \
+			1> >(sed -E '\^'"$stdouts_to_suppress_regex"'^d' >&1) \
+			2> >(hl -P --local >&2) \
+			2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
+	else
+		go tool "$@" <&0 \
+			1> >(hl -P --local >&1) \
+			1> >(sed -E '\^'"$stdouts_to_suppress_regex"'^d' >&1) \
+			2> >(hl -P --local >&2) \
+			2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
+	fi
 
 	exit $?
 fi

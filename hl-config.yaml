@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/pamburus/hl/master/schema/json/config.schema.json
+$schema: https://raw.githubusercontent.com/pamburus/hl/master/schema/json/config.schema.json
+
+# Time format, see https://man7.org/linux/man-pages/man1/date.1.html for details.
+time-format: "%b %d %T.%3N"
+
+# Time zone name, see column "TZ identifier" at
+# https://en.wikipedia.org/wiki/List_of_tz_database_time_zones page.
+time-zone: "UTC"
+
+# Layouts defining which information about the input file to display.
+# One or many of the following values can be specified: [`auto`, `none`, `minimal`, `compact`, `full`].
+# If multiple layouts are specified, only these layouts will be enabled.
+#
+# If `auto` is specified, the most suitable layout will be automatically chosen from the enabled layouts
+# based on the number of input files and the width of the terminal screen.
+#
+# If `auto` is specified but no other layouts are specified, all supported layouts will be enabled.
+#
+# Layout `none` means that no information about the input file is displayed.
+# Layout `minimal` means that only the input file number is displayed.
+# Layout `compact` means that the input file number and shortened path are displayed.
+# Layout `full` means that the input file number and full path are displayed.
+input-info: auto
+
+# Settings for fields processing.
+fields:
+    # Configuration of the predefined set of fields.
+    predefined:
+        time:
+            show: auto
+            names:
+                ["ts", "TS", "time", "TIME", "Time", "Timestamp", "_SOURCE_REALTIME_TIMESTAMP", "__REALTIME_TIMESTAMP"]
+        logger:
+            names: ["logger", "LOGGER", "Logger"]
+        level:
+            show: auto
+            variants:
+                - names: ["level", "LEVEL", "Level"]
+                  values:
+                      error: ["error", "err", "fatal", "critical", "panic"]
+                      warning: ["warning", "warn"]
+                      info: ["info", "information"]
+                      debug: ["debug"]
+                      trace: ["trace"]
+                - names: ["PRIORITY"]
+                  values:
+                      error: [3, 2, 1]
+                      warning: [5, 4]
+                      info: [6]
+                      debug: [7]
+        message:
+            names: ["msg", "message", "MESSAGE", "Message"]
+        caller:
+            names: ["caller", "CALLER", "Caller"]
+        caller-file:
+            names: []
+        caller-line:
+            names: []
+    # List of wildcard field names to ignore.
+    ignore: ["_*"]
+    # List of exact field names to hide.
+    hide: []
+
+# Formatting settings.
+formatting:
+    flatten: always
+    punctuation:
+        logger-name-separator: ":"
+        field-key-value-separator: "="
+        string-opening-quote: "'"
+        string-closing-quote: "'"
+        source-location-separator: "→ "
+        hidden-fields-indicator: " ..."
+        level-left-separator: "["
+        level-right-separator: "]"
+        input-number-prefix: "#"
+        input-number-left-separator: ""
+        input-number-right-separator: " │ "
+        input-name-left-separator: ""
+        input-name-right-separator: " │ "
+        input-name-clipping: "··"
+        input-name-common-part: "··"
+        array-separator: " "
+
+# Number of processing threads, configured automatically based on CPU count if not specified.
+concurrency: ~
+
+# Currently selected theme.
+theme: "uni"

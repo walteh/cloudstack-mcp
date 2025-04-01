@@ -77,7 +77,8 @@ tasks:
     mcp:service-account:check:
         desc: Check MCP service account status
         cmds:
-            - bash ./scripts/cmk.sh list users username=mcp-service
+            - | #bash
+                bash ./scripts/cmk.sh list users username=mcp-service
 
     docker:start:
         desc: Start CloudStack and MCP server using Docker Compose
@@ -110,51 +111,6 @@ tasks:
         cmds:
             - ./go build -o bin/server ./cmd/server
 
-    clean:
-        desc: Clean build artifacts
-        cmds:
-            - rm -rf bin
-            - rm -rf .tmp
-
-    check-qemu:
-        desc: Check and install QEMU if needed on macOS
-        cmds:
-            - bash ./scripts/install-qemu-macos.sh
-
-    build:setup-kvm:
-        desc: Build the setup-kvm tool
-        cmds:
-            - mkdir -p bin
-            - go build -o bin/setup-kvm ./cmd/setup-kvm
-        sources:
-            - cmd/setup-kvm/main.go
-        generates:
-            - bin/setup-kvm
-
-    run:setup-kvm:
-        desc: Run the setup-kvm command
-        deps: [check-qemu]
-        cmds:
-            - ./go run ./cmd/setup-kvm {{.CLI_ARGS}}
-
-    setup-kvm:
-        desc: Set up KVM inside a VM
-        deps: [build:setup-kvm]
-        cmds:
-            - task: build:setup-kvm
-            - bin/setup-kvm {{.CLI_ARGS}}
-
-    generate-hypervisor-grpc:
-        desc: Generate gRPC code for hypervisor
-        cmds:
-            - mkdir -p api/services/hypervisor/v1
-            - protoc -I api/services --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/services/hypervisor/v1/hypervisor.proto
-        sources:
-            - api/services/hypervisor/v1/hypervisor.proto
-        generates:
-            - api/services/hypervisor/v1/hypervisor.pb.go
-            - api/services/hypervisor/v1/hypervisor_grpc.pb.go
-
     vm:launch:
         desc: Launch a VM
         cmds:
@@ -165,6 +121,11 @@ tasks:
             - alpine exec cloudstack-agent -- ash -c "/mnt/cloudstack-agent-mnt/alpine-setup-cloud-init.sh"
 
             - alpine exec cloudstack-agent -- ash -c "cloud-init -f /mnt/cloud-init.yaml init && cloud-init -f /mnt/cloud-init.yaml modules"
+
+    jsonschema:lima:
+        desc: Generate JSON schema for Lima
+        cmds:
+            - ./go tool github.com/lima-vm/lima/cmd/limactl generate-jsonschema > gen/config/lima.schema.json
 
     # vm:incus:
     #     desc: Launch a VM using Incus

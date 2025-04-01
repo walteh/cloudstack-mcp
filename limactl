@@ -1,0 +1,5 @@
+#! /bin/bash
+
+set -e
+
+go run ./cmd/pipe --- limactl --log-format=json "$@" --- hl --local -P

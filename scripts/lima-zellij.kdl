@@ -1,0 +1,75 @@
+ui {
+    pane_frames {
+        rounded_corners true
+    }
+}
+layout {
+	    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        pane size=2 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+    // Overview window with basic instance status
+    tab name="Overview" {
+        pane split_direction="vertical" {
+            pane size="35%" {
+                command "limactl"
+				name "Instance Status"
+                args "list | grep cloudstack-agent-for-logs || echo 'Instance not found'"
+            }
+            pane split_direction="horizontal" {
+                pane command="limactl" {
+					name "System Logs"
+                    args  "shell" "cloudstack-agent-for-logs"
+					command "journalctl -f"
+                }
+                pane {
+					name "Lima Config"
+                    command "limactl"
+                    args "config" "cloudstack-agent-for-logs"
+                }
+            }
+        }
+    }
+
+
+
+    // Network stats window
+    tab name="Stats" {
+        pane split_direction="horizontal" {
+            pane command="limactl" {
+                name "Network Interfaces"
+                args "shell" "cloudstack-agent-for-logs"
+				command "ip addr show"
+            }
+            pane command="limactl" {
+                name "Network Connections"
+                args  "shell" "cloudstack-agent-for-logs"
+				command "netstat -tuln"
+            }
+        }
+
+		        pane split_direction="horizontal" {
+            pane command="limactl" {
+                name "Disk Usage"
+                args  "shell" "cloudstack-agent-for-logs"
+				command "df -h"
+            }
+            pane command="limactl" {
+				name "Disk I/O"
+                args  "shell" "cloudstack-agent-for-logs"
+				command "iostat -x 2"
+            }
+        }
+
+		        pane command="limactl" {
+            name "Process List"
+            args  "shell" "cloudstack-agent-for-logs"
+			command "ps aux --sort=-%cpu | head -20"
+        }
+    }
+} 

@@ -15,7 +15,7 @@ images:
       arch: "aarch64"
 
 # Use Virtualisation.framework on Mac
-vmType: "vz"
+vmType: "qemu"
 
 # Mount home directory
 mounts:
@@ -29,7 +29,12 @@ ssh:
 
 # Network configuration with vzNAT
 networks:
-    - vzNAT: true
+    # - socket: "/opt/homebrew/Cellar/socket_vmnet/1.2.1/bin/socket_vmnet"
+    #   stdout: "/opt/homebrew/var/log/socket_vmnet/stdout"
+    #   stderr: "/opt/homebrew/var/log/socket_vmnet/stderr"
+    #   gateway: "192.168.105.1"
+
+    - lima: "shared"
 
 # Port forwarding for required services
 portForwards:
@@ -40,29 +45,50 @@ portForwards:
     - guestPort: 2049 # NFS
       hostPort: 2049
 
+probes:
+    # Only `readiness` probes are supported right now.
+    - mode: readiness
+      description: cloudstack-agent to be installed
+      script: |
+          #!/bin/bash
+            #   set -eux -o pipefail
+            #   if ! timeout 30s bash -c "until command -v cloudstack-agent; do sleep 3; done"; then
+            #     echo >&2 "vim is not installed yet"
+            #     exit 1
+            #   fi
+          exit 0
+      hint: |
+          vim was not installed in the guest. Make sure the package system is working correctly.
+          Also see "/var/log/cloud-init-output.log" in the guest.
+
 # Provision script to setup just CloudStack agent
 provision:
+    # - mode: boot
+    #   file:
+    #       url: https://raw.githubusercontent.com/lima-vm/lima/master/examples/cloudstack-agent.yaml
     - mode: system
       script: | #bash
-          #! /bin/bash
+          #!/bin/bash
 
-          set -e
+              b=CIDATA
+              hosthome_mountpoint=LIMA_${b}_HOSTHOME_MOUNTPOINT
+              echo "hosthome_mountpoint: ${!hosthome_mountpoint}"
+          hosthome_mountpoint=${!hosthome_mountpoint}
 
-          exec >> $LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/{{.Name}}/provision.log 2>&1
+          exec >> $hosthome_mountpoint/.lima/{{.Name}}/provision.log 2>&1
 
-
-            #   sudo tail -f /var/log/cloud-init-output.log | tee $LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/{{.Name}}/cloud-init-output.log &
+            #   sudo tail -f /var/log/cloud-init-output.log | tee $LIMA_CIDATz_HOSTHOME_MOUNTPOINT/.lima/{{.Name}}/cloud-init-output.log &
             #   TAIL_PID=$!
 
           cleanup() {
             # echo "Stopping tail (PID: $TAIL_PID)"
             # kill $TAIL_PID 2>/dev/null
-            cp /var/log/cloud-init-output.log $LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/{{.Name}}/cloud-init-output.log
+            cp /var/log/cloud-init-output.log $hosthome_mountpoint/.lima/{{.Name}}/cloud-init-output.log
           }
 
           trap cleanup EXIT INT TERM
 
-          echo "LIMA_CIDATA_HOSTHOME_MOUNTPOINT: $LIMA_CIDATA_HOSTHOME_MOUNTPOINT"
+          echo "hosthome_mountpoint: $hosthome_mountpoint"
            #   echo "all vars: {{.}}"
               echo "AdditionalDisks: {{.AdditionalDisks}}"
               echo "Arch: {{.Arch}}"
@@ -160,16 +186,16 @@ provision:
           echo 'remote_mode="legacy"' >> /etc/libvirt/libvirt.conf
 
           # Configure libvirtd
-          tee /etc/libvirt/libvirtd.conf <<<"
+          tee /etc/libvirt/libvirtd.conf <<<'
           listen_tls=0
           listen_tcp=1
           tcp_port = "16509"
           mdns_adv = 0
           auth_tcp = "none"
-          "
+          '
 
           # Configure default network for libvirt (if needed)
-          tee /etc/libvirt/qemu/networks/default.xml <<<"
+          tee /etc/libvirt/qemu/networks/default.xml <<<'
           <network>
             <name>default</name>
             <bridge name="virbr0"/>
@@ -180,7 +206,7 @@ provision:
               </dhcp>
             </ip>
           </network>
-          "
+          '
 
           # Restart libvirt
           systemctl restart libvirtd

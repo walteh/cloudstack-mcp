@@ -140,3 +140,9 @@ tasks:
     #         - ./go tool macpine exec incus "incus config trust add mymac"
     #         - incus remote add incus https://127.0.0.1:8449
     #         - incus remote switch incus
+
+    monitor-lima:
+        desc: Monitor logs for a Lima instance in a tmux session
+        cmds:
+            - ./scripts/monitor-lima.sh {{.CLI_ARGS}}
+        silent: true

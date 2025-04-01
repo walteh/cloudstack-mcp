@@ -108,17 +108,10 @@ if [ "${1:-}" == "tool" ]; then
 
 	if [[ "$*" == *"limactl"* ]]; then
 		shift
-		limactl --log-format=json "$@" <&0 \
-			1> >(hl -P --local >&1) \
-			1> >(sed -E '\^'"$stdouts_to_suppress_regex"'^d' >&1) \
-			2> >(hl -P --local >&2) \
-			2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
+		go run ./cmd/pipe --- limactl --log-format=json "$@" --- hl --local -P
+
 	else
-		go tool "$@" <&0 \
-			1> >(hl -P --local >&1) \
-			1> >(sed -E '\^'"$stdouts_to_suppress_regex"'^d' >&1) \
-			2> >(hl -P --local >&2) \
-			2> >(sed -E '\^'"$errors_to_suppress_regex"'^d' >&2)
+		go run ./cmd/pipe --- go tool "$@" --- hl --local -P
 	fi
 
 	exit $?

@@ -11,14 +11,14 @@ NC='\033[0m' # No Color
 # echo -e "${BLUE}=== CloudMonkey Container Client ===${NC}"
 
 # Check if CloudStack containers are running
-if ! docker ps | grep -q cloudstack-simulator; then
+if ! docker ps | grep -q cloudstack-mcp-simulator; then
 	echo -e "${RED}CloudStack simulator is not running.${NC}"
 	echo -e "${YELLOW}Please start CloudStack with 'task docker:start' first.${NC}"
 	exit 1
 fi
 
 # Check if CloudMonkey container is running
-if ! docker ps | grep -q cloudstack-cloudmonkey; then
+if ! docker ps | grep -q cloudstack-mcp-cmk; then
 	echo -e "${RED}CloudMonkey container is not running.${NC}"
 	echo -e "${YELLOW}Please start the environment with 'task docker:start' first.${NC}"
 	exit 1
@@ -26,7 +26,7 @@ fi
 
 # Function to execute commands in the CloudMonkey container
 run_cmk() {
-	docker exec -it cloudstack-cloudmonkey cmk "$@"
+	docker exec -it cloudstack-mcp-cmk cmk "$@"
 }
 
 # If no arguments are provided, just show usage

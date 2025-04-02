@@ -1,6 +1,9 @@
 services:
     cloudstack:
-        image: apache/cloudstack-simulator:4.20.0.0
+        build:
+            context: .
+            dockerfile: docker/simulator.Dockerfile
+
         container_name: cloudstack-mcp-simulator
         platform: linux/amd64
         ports:

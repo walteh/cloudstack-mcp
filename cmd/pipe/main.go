@@ -26,7 +26,7 @@ func isolateCommands(args []string) ([]string, [][]string) {
 	// things are passed to this command as
 	// this --- command to run --- command to pipe 1 --- command to pipe 2 --- ...
 
-	idx := findNextSeparator(os.Args, 0)
+	idx := findNextSeparator(args, 0)
 	if idx == -1 {
 		fmt.Println("no commands found")
 		os.Exit(1)
@@ -35,12 +35,12 @@ func isolateCommands(args []string) ([]string, [][]string) {
 	commands := [][]string{}
 	wrk := []string{}
 
-	for i := idx + 1; i < len(os.Args); i++ {
-		if os.Args[i] == "---" {
+	for i := idx + 1; i < len(args); i++ {
+		if args[i] == "---" {
 			commands = append(commands, wrk)
 			wrk = []string{}
 		} else {
-			wrk = append(wrk, os.Args[i])
+			wrk = append(wrk, args[i])
 		}
 	}
 

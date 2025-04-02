@@ -1,13 +1,16 @@
-# CloudStack MCP
+= CloudStack MCP
 
 A Model Context Protocol (MCP) server for Apache CloudStack, allowing AI agents to interact with CloudStack infrastructure.
 
-> [!IMPORTANT]
-> This project is still under development and not all features are available. Treat it as a proof of concept.
+[IMPORTANT]
+====
+This project is still under development and not all features are available. Treat it as a proof of concept.
+====
 
-## Running the server (macOS)
+== Running the server (macOS)
 
-```bash
+[source,bash]
+----
 # Install the dependencies
 brew install go-task go docker
 
@@ -17,15 +20,16 @@ cd cloudstack-mcp
 
 # Start the environment (will take a while)
 task docker:start
-```
+----
 
-## Generic MCP Usage
+== Generic MCP Usage
 
-### for `sse` servers (recommended, if possible)
+=== for `sse` servers (recommended, if possible)
 
--   works with `Cursor`
+* works with `Cursor`
 
-```json
+[source,json]
+----
 {
 	"mcpServers": {
 		"cloudstack": {
@@ -33,13 +37,14 @@ task docker:start
 		}
 	}
 }
-```
+----
 
-### for `stdio` servers
+=== for `stdio` servers
 
--   works with `Cursor`, and `Claude Desktop`
+* works with `Cursor`, and `Claude Desktop`
 
-```json
+[source,json]
+----
 {
 	"mcpServers": {
 		"cloudstack": {
@@ -48,27 +53,29 @@ task docker:start
 		}
 	}
 }
-```
+----
 
-## Usage with Cursor (macOS)
+== Usage with Cursor (macOS)
 
 1. make sure server is running and you are in the root of the project (see above)
 
 2. set up dependencies
-
-```bash
++
+[source,bash]
+----
 brew install --cask cursor
-```
+----
 
 3. open the project in Cursor
-
-```bash
++
+[source,bash]
+----
 cursor cloudstack-mcp.code-workspace
-```
+----
 
 4. open cursor settings from the menu bar `Cursor -> Settings... -> Cursor Settings` (or press `Shift-Cmd-J`)
 
-5. go to the `MCP` tab, you should see the `cloudstack` server already added (because of [`./.cursor/mcp.json`](./.cursor/mcp.json))
+5. go to the `MCP` tab, you should see the `cloudstack` server already added (because of link:./.cursor/mcp.json[`./.cursor/mcp.json`])
 
 6. click on the buttons to refresh and enable the `cloudstack` server - you should see a green dot and a list of `list` cloudstack api commands
 
@@ -78,48 +85,49 @@ cursor cloudstack-mcp.code-workspace
 
 9. type `can you list my @cloudstack vpcs?`
 
-10. press `Enter` and watch the magic happen!
+10. press `Enter` and watch the magic happen! (realistically, you might have to try and convince the AI to do this, but it should work)
 
-```
-# list zones
-list zones
-```
 
-## Usage with Claude Desktop (macOS)
+== Usage with Claude Desktop (macOS)
 
-> [!CAUTION]
-> There is a 99% chance this will not work, but you can use it as a starting point to get the MCP working with Claude Desktop if you like.
+[CAUTION]
+====
+There is a 99% chance this will not work, but you can use it as a starting point to get the MCP working with Claude Desktop if you like.
+====
 
 1. make sure server is running and you are in the root of the project (see above)
 
 2. set up dependencies
-
-```bash
++
+[source,bash]
+----
 brew install --cask claude-desktop
-```
+----
 
 3. run this to setup the server in Claude Desktop
-
-```bash
++
+[source,bash]
+----
 # injects the server into claudes config, doesn't overwrite anything (unless you have another mcp called 'cloudstack')
 task mcp:setup:claude-desktop
-```
+----
 
 4. restart claude desktop
 
-## How It Works
+== How It Works
 
 This MCP implementation allows AI assistants to manage CloudStack resources by:
 
--   Translating MCP protocol requests into CloudStack API calls
--   Providing common operations like VM deployment and management
--   Handling authentication and API interaction automatically
+* Translating MCP protocol requests into CloudStack API calls
+* Providing common operations like VM deployment and management
+* Handling authentication and API interaction automatically
 
-## CloudMonkey Usage
+== CloudMonkey Usage
 
 CloudMonkey (the CloudStack CLI) is containerized in this setup:
 
-```bash
+[source,bash]
+----
 # Basic commands
 task cmk -- list zones
 task cmk -- list serviceofferings
@@ -129,8 +137,8 @@ task cmk -- sync
 
 # Get API credentials
 task cloudstack:get-credentials
-```
+----
 
-## License
+== License
 
-Apache License 2.0
+Apache License 2.0 

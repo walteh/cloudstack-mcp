@@ -60,7 +60,7 @@ if [ "${1:-}" == "test" ]; then
 		--format-icons hivis \
 		--hide-summary=skipped \
 		\
-		--raw-command -- go test -v -vet=all -json -cover $extra_args "${real_args[@]}" # --jsonfile=test.json \
+		--raw-command -- go test -v -vet=all -json -cover "$extra_args" "${real_args[@]}" # --jsonfile=test.json \
 
 	exit $?
 fi
@@ -111,7 +111,8 @@ if [ "${1:-}" == "tool" ]; then
 		go run ./cmd/pipe --- limactl --log-format=json "$@" --- hl --local -P
 
 	else
-		go run ./cmd/pipe --- go tool "$@" --- hl --local -P
+		go tool "$@"
+		# go run ./cmd/pipe --- go tool "$@" --- hl --local -P
 	fi
 
 	exit $?

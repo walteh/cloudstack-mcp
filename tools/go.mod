@@ -1,26 +1,20 @@
 module github.com/walteh/cloudstack-mcp/tools
 
-go 1.24.1
+go 1.24.2
 
-tool github.com/go-task/task/v3/cmd/task
-
-tool github.com/vektra/mockery/v2
-
-tool github.com/atombender/go-jsonschema
-
-tool cmd/test2json
-
-tool gotest.tools/gotestsum
-
-tool github.com/oligot/go-mod-upgrade
-
-tool github.com/kazhuravlev/options-gen/cmd/options-gen
-
-tool github.com/beringresearch/macpine
-
-tool github.com/lima-vm/lima/cmd/limactl
-
-tool github.com/tomwright/dasel/v2/cmd/dasel
+tool (
+	cmd/test2json
+	github.com/apple/pkl-go/cmd/pkl-gen-go
+	github.com/atombender/go-jsonschema
+	github.com/beringresearch/macpine
+	github.com/go-task/task/v3/cmd/task
+	github.com/kazhuravlev/options-gen/cmd/options-gen
+	github.com/lima-vm/lima/cmd/limactl
+	github.com/oligot/go-mod-upgrade
+	github.com/tomwright/dasel/v2/cmd/dasel
+	github.com/vektra/mockery/v2
+	gotest.tools/gotestsum
+)
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
@@ -39,6 +33,7 @@ require (
 	github.com/alecthomas/participle/v2 v2.1.1 // indirect
 	github.com/apex/log v1.9.0 // indirect
 	github.com/apparentlymart/go-cidr v1.1.0 // indirect
+	github.com/apple/pkl-go v0.9.0 // indirect
 	github.com/atombender/go-jsonschema v0.18.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/balajiv113/fd v0.0.0-20230330094840-143eec500f3e // indirect
@@ -158,6 +153,8 @@ require (
 	github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701 // indirect
 	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/vektra/mockery/v2 v2.53.3 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect

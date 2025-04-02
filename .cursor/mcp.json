@@ -1,0 +1,7 @@
+{
+	"mcpServers": {
+		"cloudstack": {
+			"url": "http://localhost:8251/sse"
+		}
+	}
+}

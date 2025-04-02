@@ -19,7 +19,7 @@
 
 # env file
 .env
-.cursor
+.cursor/rules
 
 # Go build artifacts
 /bin/

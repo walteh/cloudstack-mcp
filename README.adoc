@@ -2,10 +2,9 @@
 
 A Model Context Protocol (MCP) server for Apache CloudStack, allowing AI agents to interact with CloudStack infrastructure.
 
-[IMPORTANT]
-====
-This project is still under development and not all features are available. Treat it as a proof of concept.
-====
+
+IMPORTANT: This project is still under development and not all features are available. Treat it as a proof of concept.
+
 
 == Running the server (macOS)
 
@@ -90,10 +89,7 @@ cursor cloudstack-mcp.code-workspace
 
 == Usage with Claude Desktop (macOS)
 
-[CAUTION]
-====
-There is a 99% chance this will not work, but you can use it as a starting point to get the MCP working with Claude Desktop if you like.
-====
+CAUTION: There is a 99% chance this will not work, but you can use it as a starting point to get the MCP working with Claude Desktop if you like.
 
 1. make sure server is running and you are in the root of the project (see above)
 

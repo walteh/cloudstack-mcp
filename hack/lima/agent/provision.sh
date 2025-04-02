@@ -1,21 +1,19 @@
-#! /bin/bash
+#!/bin/bash
 
-set -e
+b=CIDATA
+hosthome_mountpoint=LIMA_${b}_HOSTHOME_MOUNTPOINT
+echo "hosthome_mountpoint: ${!hosthome_mountpoint}"
+hosthome_mountpoint=${!hosthome_mountpoint}
 
-exec >>$LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/n/provision.log 2>&1
-
-#   sudo tail -f /var/log/cloud-init-output.log | tee $LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/n/cloud-init-output.log &
-#   TAIL_PID=$!
+exec >>"$hosthome_mountpoint/.lima/{{.Name}}/provision.log" 2>&1
 
 cleanup() {
-	# echo "Stopping tail (PID: $TAIL_PID)"
-	# kill $TAIL_PID 2>/dev/null
-	cp /var/log/cloud-init-output.log $LIMA_CIDATA_HOSTHOME_MOUNTPOINT/.lima/n/cloud-init-output.log
+	cp /var/log/cloud-init-output.log "$hosthome_mountpoint/.lima/{{.Name}}/cloud-init-output.log"
 }
 
 trap cleanup EXIT INT TERM
 
-echo "LIMA_CIDATA_HOSTHOME_MOUNTPOINT: $LIMA_CIDATA_HOSTHOME_MOUNTPOINT"
+echo "hosthome_mountpoint: $hosthome_mountpoint"
 #   echo "all vars: {{.}}"
 echo "AdditionalDisks: {{.AdditionalDisks}}"
 echo "Arch: {{.Arch}}"
@@ -35,7 +33,7 @@ echo "LimaHome: {{.LimaHome}}"
 echo "LimaVersion: {{.LimaVersion}}"
 echo "Memory: {{.Memory}}"
 echo "Message: {{.Message}}"
-echo "Name: n"
+echo "Name: {{.Name}}"
 echo "Networks: {{.Networks}}"
 echo "Param: {{.Param}}"
 echo "Protected: {{.Protected}}"
@@ -86,12 +84,12 @@ tee /etc/netplan/02-cloudstack-bridge.yaml <<<"
           network:
               version: 2
               bridges:
-              cloudbr0:
-                  addresses: [192.168.122.100/24]
-                  interfaces: []
-                  parameters:
-                  stp: false
-                  forward-delay: 0
+                cloudbr0:
+                    addresses: [192.168.122.100/24]
+                    interfaces: []
+                    parameters:
+                        stp: false
+                        forward-delay: 0
           "
 
 netplan generate
@@ -113,16 +111,16 @@ systemctl mask libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket libvirtd
 echo 'remote_mode="legacy"' >>/etc/libvirt/libvirt.conf
 
 # Configure libvirtd
-tee /etc/libvirt/libvirtd.conf <<<"
+tee /etc/libvirt/libvirtd.conf <<<'
           listen_tls=0
           listen_tcp=1
           tcp_port = "16509"
           mdns_adv = 0
           auth_tcp = "none"
-          "
+          '
 
 # Configure default network for libvirt (if needed)
-tee /etc/libvirt/qemu/networks/default.xml <<<"
+tee /etc/libvirt/qemu/networks/default.xml <<<'
           <network>
             <name>default</name>
             <bridge name="virbr0"/>
@@ -133,7 +131,7 @@ tee /etc/libvirt/qemu/networks/default.xml <<<"
               </dhcp>
             </ip>
           </network>
-          "
+          '
 
 # Restart libvirt
 systemctl restart libvirtd

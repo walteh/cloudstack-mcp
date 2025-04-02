@@ -14,15 +14,13 @@ tool gotest.tools/gotestsum
 
 tool github.com/oligot/go-mod-upgrade
 
-tool github.com/NickyBoy89/java2go
-
 tool github.com/kazhuravlev/options-gen/cmd/options-gen
 
 tool github.com/beringresearch/macpine
 
 tool github.com/lima-vm/lima/cmd/limactl
 
-tool github.com/ivaaaan/smug
+tool github.com/tomwright/dasel/v2/cmd/dasel
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
@@ -34,7 +32,6 @@ require (
 	github.com/Ladicle/tabwriter v1.0.0 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/NickyBoy89/java2go v0.0.0-20230212092738-955876f0bd9b // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/a8m/envsubst v1.4.2 // indirect
@@ -54,6 +51,7 @@ require (
 	github.com/chainguard-dev/git-urls v1.0.2 // indirect
 	github.com/cheggaaa/pb/v3 v3.1.7 // indirect
 	github.com/chigopher/pathlib v0.19.1 // indirect
+	github.com/clbanning/mxj/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.0 // indirect
 	github.com/containerd/containerd v1.7.27 // indirect
 	github.com/containerd/continuity v0.4.5 // indirect
@@ -98,7 +96,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/insomniacslk/dhcp v0.0.0-20240710054256-ddd8a41251c9 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
-	github.com/ivaaaan/smug v0.3.6 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
@@ -150,7 +147,6 @@ require (
 	github.com/sethvargo/go-password v0.3.1 // indirect
 	github.com/sirupsen/logrus v1.9.4-0.20230606125235-dd1b4c2e81af // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/smacker/go-tree-sitter v0.0.0-20230113054119-af7e2ef5fed6 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
@@ -158,6 +154,7 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/spf13/viper v1.20.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/tomwright/dasel/v2 v2.8.1 // indirect
 	github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701 // indirect
 	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/vektra/mockery/v2 v2.53.3 // indirect
@@ -183,7 +180,6 @@ require (
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/gotestsum v1.12.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20240916094835-a174eb65023f // indirect

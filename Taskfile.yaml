@@ -7,6 +7,8 @@ vars:
         sh: find . -type f -name '*.schema.json'
     GO_ROOT_PKG:
         sh: cat go.mod | grep -oE '^module[^\S]+' | cut -d' ' -f2
+    LIMA_CONFIG_FILES:
+        sh: find hack/lima -type f -name '*.yaml'
 
 env:
     COMPOSE_BAKE: true
@@ -74,6 +76,23 @@ tasks:
         cmds:
             - bash ./scripts/cmk.sh {{.CLI_ARGS}}
 
+    mcp:setup:claude:
+        desc: Setup Claude Desktop to use the CloudStack MCP server
+        vars:
+            CLAUDE_CONFIG_DIR:
+                sh: echo ~/Library/Application Support/Claude
+            CLAUDE_CONFIG_FILE:
+                sh: echo ~/Library/Application Support/Claude/claude_desktop_config.json
+            DOCKER_COMPOSE_FILE:
+                sh: echo $(pwd)/docker-compose.yaml
+        cmds:
+            - mkdir -p "{{.CLAUDE_CONFIG_DIR}}"
+            # - 'if [ ! -s "{{.CLAUDE_CONFIG_FILE}}" ]; then echo "{\"mcpServers\": {}}" > "{{.CLAUDE_CONFIG_FILE}}"; fi;'
+            - jq  '.mcpServers.cloudstack.command = "docker"' "{{.CLAUDE_CONFIG_FILE}}" > "{{.CLAUDE_CONFIG_FILE}}.tmp"
+            - cp "{{.CLAUDE_CONFIG_FILE}}.tmp" "{{.CLAUDE_CONFIG_FILE}}" && rm "{{.CLAUDE_CONFIG_FILE}}.tmp"
+            - jq  '.mcpServers.cloudstack.args = ["compose", "-f", "{{.DOCKER_COMPOSE_FILE}}", "--progress=quiet", "run", "--no-deps", "mcp-server-stdio"]' "{{.CLAUDE_CONFIG_FILE}}" > "{{.CLAUDE_CONFIG_FILE}}.tmp"
+            - cp "{{.CLAUDE_CONFIG_FILE}}.tmp" "{{.CLAUDE_CONFIG_FILE}}" && rm "{{.CLAUDE_CONFIG_FILE}}.tmp"
+
     mcp:service-account:check:
         desc: Check MCP service account status
         cmds:
@@ -83,7 +102,7 @@ tasks:
     docker:start:
         desc: Start CloudStack and MCP server using Docker Compose
         cmds:
-            - docker compose --progress=tty up -d --wait --build
+            - docker compose --progress=tty up -d --wait --build --remove-orphans
 
     docker:restart:
         desc: Start CloudStack and MCP server using Docker Compose
@@ -101,17 +120,7 @@ tasks:
         cmds:
             - docker compose --progress=tty build
 
-    run:server:
-        desc: Run the MCP server
-        cmds:
-            - ./go run ./cmd/server
-
-    build:
-        desc: Build the MCP server
-        cmds:
-            - ./go build -o bin/server ./cmd/server
-
-    vm:launch:
+    agent:vm:launch:macpine:
         desc: Launch a VM
         cmds:
             - mkdir -p ./.tmp/cloudstack-agent-mnt
@@ -121,6 +130,13 @@ tasks:
             - alpine exec cloudstack-agent -- ash -c "/mnt/cloudstack-agent-mnt/alpine-setup-cloud-init.sh"
 
             - alpine exec cloudstack-agent -- ash -c "cloud-init -f /mnt/cloud-init.yaml init && cloud-init -f /mnt/cloud-init.yaml modules"
+
+    agent:vm:launch:lima:
+        desc: Launch a VM
+        cmds:
+            - limactl stop agent || true
+            - limactl delete agent || true
+            - limactl start --name=agent hack/lima/agent/agent.yaml
 
     jsonschema:lima:
         desc: Generate JSON schema for Lima
@@ -141,8 +157,19 @@ tasks:
     #         - incus remote add incus https://127.0.0.1:8449
     #         - incus remote switch incus
 
-    monitor-lima:
-        desc: Monitor logs for a Lima instance in a tmux session
-        cmds:
-            - ./scripts/monitor-lima.sh {{.CLI_ARGS}}
-        silent: true
+    # monitor-lima:
+    #     desc: Monitor logs for a Lima instance in a tmux session
+    #     cmds:
+    #         - ./scripts/monitor-lima.sh {{.CLI_ARGS}}
+    #     silent: true
+
+    # limas:
+    #     desc: generate lima config files
+    #     cmds:
+    #         - cmd: mkdir -p gen/config/lima
+    #         - for: { var: LIMA_CONFIG_FILES }
+    #           cmd: cp {{.ITEM}} gen/config/lima/
+    #         - for: { var: LIMA_CONFIG_FILES }
+    #           cmd: ./go tool dasel put -f gen/config/lima/$(basename {{.ITEM}}) -t string -r yaml '.provision.[0].script' -v "$(cat $(dirname {{.ITEM}})/provision.sh)"
+    #         - for: { var: LIMA_CONFIG_FILES }
+    #           cmd: ./go tool dasel put -f gen/config/lima/$(basename {{.ITEM}}) -t string -r yaml '.probes.[0].script' -v "$(cat $(dirname {{.ITEM}})/readiness.sh)"

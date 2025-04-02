@@ -278,6 +278,213 @@
 						"foreground": "#06d6a0" // NEW: Matching numbers
 					}
 				}
+			},
+			"[City Lights]": {
+				"enabled": true,
+				"rules": {
+					//===========================================
+					// Core Go Elements
+					//===========================================
+					// Type System - Primary Visual Anchors
+					"type.struct": {
+						"foreground": "#a76ee8" // Purple Heart 3 - Deep purple for structs
+						// "bold": true
+					},
+					"type.interface": {
+						"foreground": "#df9de9", // SAME COLOR as struct, but not bold
+						"italic": true
+					},
+					"type.defaultLibrary": {
+						"foreground": "#ea0aa3", // Ultramarine - Deep blue-purple for standard types
+						"bold": true
+					},
+					"type": {
+						"foreground": "#3a0ca3", // Same as defaultLibrary but not bold
+						"italic": true
+					},
+
+					// Function System - Core Code Structure
+					"function": {
+						"foreground": "#e4bd8d" // Purple Heart 6 - Rich blue-purple for function calls
+					},
+					"function.signature": {
+						"foreground": "#e4bd8d", // Matching function calls
+						"bold": true
+					},
+					"function.definition": {
+						"foreground": "#d658d2", // Ultramarine - Slightly darker for definitions
+						"bold": true
+					},
+					"function.defaultLibrary": {
+						"foreground": "#806a7a", // Purple Heart - Medium purple for library functions
+						"bold": true
+					},
+					"function.builtin": {
+						"foreground": "#7209b7", // Purple Heart - Matching built-ins
+						"bold": true
+					},
+					"method": {
+						"foreground": "#4361ee" // Blue Ribbon - Bright blue for method calls
+					},
+					"method.signature": {
+						"foreground": "#e4bd8d", // Matching methods
+						"underline": true
+					},
+
+					//===========================================
+					// Error Handling & Control Flow - Critical in Go
+					//===========================================
+					"variable.error": {
+						"foreground": "#f72585", // Rose - Vivid pink for errors
+						"bold": true
+					},
+					"parameter.error": {
+						"foreground": "#f72585", // Rose - Matching error parameters
+						"bold": true,
+						"italic": true
+					},
+					"keyword": {
+						"foreground": "#B6914D", // Violet Eggplant - Other keywords
+						"bold": true
+					},
+
+					//===========================================
+					// Variable Styling
+					//===========================================
+					"variable.other": {
+						"foreground": "#4895ef", // Cornflower Blue - For basic variables
+						"italic": true
+					},
+					"variable.readonly": {
+						"foreground": "#f72585", // Rose - Constants stand out in pink
+						"bold": true
+					},
+					"variable.defaultLibrary": {
+						"foreground": "#10b981", // Purple Heart - Standard library vars
+						"bold": true
+					},
+					"variable.signature": {
+						"foreground": "#8b72f7", // Blue Ribbon - Important declarations
+						"italic": true
+					},
+
+					//===========================================
+					// Go-Specific Reference Types
+					//===========================================
+					"variable.pointer": {
+						"foreground": "#4cc9f0", // Seagull - Light blue for pointers
+						"italic": true,
+						"underline": true
+					},
+					"variable.interface": {
+						"foreground": "#6bc8d2", // Blue Ribbon - Brighter blue for interfaces
+						"italic": true,
+						"underline": true
+					},
+					"variable.map": {
+						"foreground": "#4895ef", // Cornflower Blue - Medium blue for maps
+						"italic": true,
+						"underline": true
+					},
+					"variable.slice": {
+						"foreground": "#4cc9f0", // Seagull - Light blue for slices
+						"italic": true,
+						"underline": true
+					},
+
+					//===========================================
+					// Parameter Styling
+					//===========================================
+					"parameter": {
+						"foreground": "#8d89dd", // Purple Heart 6 - Blue-purple for parameters
+						"italic": true
+					},
+					"parameter.pointer": {
+						"foreground": "#4cc9f0", // Seagull - Matching pointer style
+						"italic": true,
+						"underline": true
+					},
+					"parameter.interface": {
+						"foreground": "#4361ee", // Blue Ribbon - Matching interface style
+						"italic": true,
+						"underline": true
+					},
+					"parameter.map": {
+						"foreground": "#4895ef", // Cornflower Blue - Matching map style
+						"italic": true,
+						"underline": true
+					},
+					"parameter.slice": {
+						"foreground": "#4cc9f0", // Seagull - Matching slice style
+						"italic": true,
+						"underline": true
+					},
+
+					//===========================================
+					// String & Comment Styling
+					//===========================================
+					"string": {
+						"foreground": "#f72585" // Rose - Vivid pink for strings
+					},
+					"string.format": {
+						"foreground": "#18a558", // Violet Eggplant - Format strings
+						"bold": true
+					},
+					"string.special": {
+						"foreground": "#B6914D", // Violet Eggplant - Special strings
+						"bold": true
+					},
+					"comment": {
+						"foreground": "#18a558", // NEW: Bright green for comments
+						"italic": true
+					},
+
+					//===========================================
+					// Green Elements for Status & Special Functions
+					//===========================================
+					"variable.success": {
+						"foreground": "#06d6a0", // NEW: Bright mint green for success vars
+						"bold": true
+					},
+					"decorator": {
+						"foreground": "#10b981", // NEW: Emerald green for decorators/annotations
+						"bold": true
+					},
+					"operator.special": {
+						"foreground": "#1db954", // NEW: Spotify green for special operators
+						"bold": true
+					},
+					"function.test": {
+						"foreground": "#06d6a0", // NEW: Bright mint green for test functions
+						"bold": true
+					},
+
+					//===========================================
+					// Other Elements
+					//===========================================
+					"namespace": {
+						"foreground": "#d1cdcd", // Purple Heart 3 - Deep purple for packages
+						"bold": true
+					},
+					"property": {
+						"foreground": "#4361ee" // Blue Ribbon - Blue for struct fields
+					},
+					"operator": {
+						"foreground": "#da4c6f", // Purple Heart - Medium purple for operators
+						"bold": true
+					},
+					"variable.context": {
+						"foreground": "#2dc653", // NEW: Green for context variables
+						"italic": true,
+						"bold": true
+					},
+					"number": {
+						"foreground": "#06d6a0" // NEW: Bright mint green for numbers
+					},
+					"numeric": {
+						"foreground": "#06d6a0" // NEW: Matching numbers
+					}
+				}
 			}
 		},
 		//===========================================

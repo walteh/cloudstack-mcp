@@ -85,6 +85,11 @@ services:
         networks:
             - cloudstack-network
         command: ["/app/server", "-http=false"]
+        depends_on:
+            cloudstack:
+                condition: service_healthy
+        restart: never
+        # isolation: service
 
 networks:
     cloudstack-network:

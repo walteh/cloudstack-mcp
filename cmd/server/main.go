@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog"
@@ -135,7 +136,9 @@ func setupServer(ctx context.Context, config *cloudstack.Config, username, passw
 
 	listToolsStr := []string{}
 	for _, tool := range tools {
-		listToolsStr = append(listToolsStr, tool.Name)
+		if strings.Contains(tool.Name, "list") {
+			listToolsStr = append(listToolsStr, tool.Name)
+		}
 	}
 
 	logger.Trace().Int("tools", len(listToolsStr)).Msg("Created tools")

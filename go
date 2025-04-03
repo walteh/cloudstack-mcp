@@ -106,14 +106,8 @@ if [ "${1:-}" == "tool" ]; then
 
 	export HL_CONFIG=./hl-config.yaml
 
-	if [[ "$*" == *"limactl"* ]]; then
-		shift
-		go run ./cmd/pipe --- limactl --log-format=json "$@" --- hl --local -P
-
-	else
-		go tool "$@"
-		# go run ./cmd/pipe --- go tool "$@" --- hl --local -P
-	fi
+	go tool "$@"
+	# go run ./cmd/pipe --- go tool "$@" --- hl --local -P
 
 	exit $?
 fi

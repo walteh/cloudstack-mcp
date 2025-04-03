@@ -100,7 +100,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/lima-vm/go-qcow2reader v0.6.0 // indirect
-	github.com/lima-vm/lima v1.0.6 // indirect
+	github.com/lima-vm/lima v1.0.7 // indirect
 	github.com/lima-vm/sshocker v0.3.5 // indirect
 	github.com/linuxkit/virtsock v0.0.0-20220523201153-1a23e78aa7a2 // indirect
 	github.com/magiconair/properties v1.8.9 // indirect

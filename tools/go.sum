@@ -251,6 +251,8 @@ github.com/lima-vm/go-qcow2reader v0.6.0 h1:dNstUGQxEUPbmiiVnu/cek2x7scrHe2VJy5J
 github.com/lima-vm/go-qcow2reader v0.6.0/go.mod h1:ay45SlGOzU+2Vc21g5/lmQgPn7Hmf0JpPhm8cuOK1FI=
 github.com/lima-vm/lima v1.0.6 h1:u3Yg36rLW4Kjn7sQmnZNDbRmIRGSr7bcFpt37bUqNj8=
 github.com/lima-vm/lima v1.0.6/go.mod h1:5ZBoFQyTPQ3nAKMWiyaNfEvIsye/trgqEAQLRVd5Mxs=
+github.com/lima-vm/lima v1.0.7 h1:V/MhePWkRJMp7NZpQ8n6zz+w5U3413J1kMiaa+lxR/Q=
+github.com/lima-vm/lima v1.0.7/go.mod h1:6kzJyTSH/VyEVlNK/NcWjF8Klf09pxlUqI20uubpwE8=
 github.com/lima-vm/sshocker v0.3.5 h1:1QNs6hVT4ZzZpifaWwe8WrDfi3zmdpHS6rA61Ao6/k4=
 github.com/lima-vm/sshocker v0.3.5/go.mod h1:FOw9S/jgmasbcTUhreVS3fAZB9LEo7CZhYZ0+y34bEQ=
 github.com/linuxkit/virtsock v0.0.0-20220523201153-1a23e78aa7a2 h1:DZMFueDbfz6PNc1GwDRA8+6lBx1TB9UnxDQliCqR73Y=
